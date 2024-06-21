@@ -52,6 +52,7 @@ dependencies {
     implementation 'com.adobe.marketing.mobile:campaign:latest.release'
     implementation 'com.adobe.marketing.mobile:campaignclassic:latest.release'
     implementation 'com.adobe.marketing.mobile:audience:latest.release'
+    implementation 'com.adobe.marketing.mobile:notificationbuilder:latest.release'
 }
 
 configurations.implementation.canBeResolved = true

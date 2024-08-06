@@ -51,17 +51,20 @@ object BuildConstants {
         const val ANDROIDX_CORE_KTX = "1.3.2"
         const val ANDROIDX_LIFECYCLE_KTX = "2.3.1"
         const val DOKKA = "1.9.10"
+        const val DEXMAKER_MOKITO_INLINE = "2.28.3"
         const val SPOTLESS = "6.12.0"
         const val JUNIT = "4.13.2"
         const val MOCKITO = "4.5.1"
+        const val MOCKK = "1.13.11"
         const val COMMONS_CODEC = "1.15"
-        const val ROBOLECTRIC = "3.6.2"
+        const val ROBOLECTRIC = "4.12.2"
         const val MOCKITO_KOTLIN = "3.2.0"
         const val JSON = "20160810"
         const val ANDROIDX_TEST_RULES = "1.4.0"
         const val ANDROIDX_TEST_RUNNER = "1.4.0"
         const val ANDROIDX_TEST_ORCHESTRATOR = "1.4.2"
         const val ANDROIDX_TEST_EXT_JUNIT = "1.1.3"
+        const val ANDROIDX_TEST_UIAUTOMATOR = "2.3.0"
         const val ESPRESSO_CORE = "3.5.0"
     }
 
@@ -74,6 +77,8 @@ object BuildConstants {
 
         // Test Dependencies
         const val JUNIT = "junit:junit:${Versions.JUNIT}"
+        const val DEXMAKER_MOKITO_INLINE = "com.linkedin.dexmaker:dexmaker-mockito-inline:${Versions.DEXMAKER_MOKITO_INLINE}"
+        const val MOCKK = "io.mockk:mockk:${Versions.MOCKK}"
         const val MOCKITO_CORE = "org.mockito:mockito-core:${Versions.MOCKITO}"
         const val MOCKITO_INLINE = "org.mockito:mockito-inline:${Versions.MOCKITO}"
         const val COMMONS_CODEC = "commons-codec:commons-codec:${Versions.COMMONS_CODEC}"
@@ -94,6 +99,7 @@ object BuildConstants {
         const val ANDROIDX_TEST_EXT_JUNIT = "androidx.test.ext:junit:${Versions.ANDROIDX_TEST_EXT_JUNIT}"
         const val ANDROIDX_TEST_RUNNER = "androidx.test:runner:${Versions.ANDROIDX_TEST_RUNNER}"
         const val ANDROIDX_TEST_ORCHESTRATOR = "androidx.test:orchestrator:${Versions.ANDROIDX_TEST_ORCHESTRATOR}"
+        const val ANDROIDX_TEST_UIAUTOMATOR = "androidx.test.uiautomator:${Versions.ANDROIDX_TEST_UIAUTOMATOR}"
         const val COMPOSE_UI_TEST_JUNIT4 = "androidx.compose.ui:ui-test-junit4:${Versions.COMPOSE}"
         const val COMPOSE_UI_TEST_MANIFEST = "androidx.compose.ui:ui-test-manifest:${Versions.COMPOSE}"
         const val ESPRESSO_CORE = "androidx.test.espresso:espresso-core:${Versions.ESPRESSO_CORE}"

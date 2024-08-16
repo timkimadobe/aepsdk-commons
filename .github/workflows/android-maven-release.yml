@@ -1,0 +1,92 @@
+#
+# Copyright 2024 Adobe. All rights reserved.
+# This file is licensed to you under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License. You may obtain a copy
+# of the License at http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software distributed under
+# the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR REPRESENTATIONS
+# OF ANY KIND, either express or implied. See the License for the specific language
+# governing permissions and limitations under the License.
+#
+
+name: Publish Release (Android)
+
+on: 
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag/version (ex: 5.0.1)'
+        required: true
+        type: string
+
+      create-github-release:
+        description: 'Create GitHub release with tag? ("false" to skip)'
+        required: true
+        type: string
+
+      constants-paths:
+        description: 'Comma separated string of relative paths to constants files. Example: "code/optimize/src/main/java/com/adobe/marketing/mobile/optimize/OptimizeConstants.java,code/optimize/src/androidTest/java/com/adobe/marketing/mobile/optimize/OptimizeTestConstants.java"'
+        required: false
+        type: string
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.7
+
+      - name: Set up Java
+        uses: actions/setup-java@v4.2.2
+        with:
+          distribution: 'zulu'
+          java-version: 17
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4.0.2
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
+          restore-keys: ${{ runner.os }}-gradle
+      
+      - name: Checkout scripts Directory from aepsdk-commons
+        uses: actions/checkout@v4.1.7
+        with:
+          repository: adobe/aepsdk-commons
+          ref: main
+          path: .github/aepsdk-commons
+          sparse-checkout: 'scripts' # Only checkout the scripts directory
+      
+      - name: Verify version        
+        run: |
+          set -eo pipefail
+          echo Release version: ${{ github.event.inputs.tag }}
+          (bash .github/aepsdk-commons/scripts/android-versions.sh -v "${{ github.event.inputs.tag }}" -p "${{ inputs.constants-paths }}")
+
+      - name: Remove called repository
+        run: rm -rf .github/aepsdk-commons
+
+      - name: Create GH Release
+        if: ${{ inputs.create-github-release == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create v${{ github.event.inputs.tag }} \
+            --verify-tag \
+            --generate-notes \
+            --title "v${{ github.event.inputs.tag }}"
+
+      - name: Import GPG key
+        env:
+          GPG_SECRET_KEYS: ${{ secrets.GPG_SECRET_KEYS }}
+          GPG_OWNERTRUST: ${{ secrets.GPG_OWNERTRUST }}
+        run: |
+          echo $GPG_SECRET_KEYS | base64 --decode | gpg --import --no-tty --batch --yes
+          echo $GPG_OWNERTRUST | base64 --decode | gpg --import-ownertrust --no-tty --batch --yes
+
+      - name: Publish to Maven Central Repository
+        run: make ci-publish
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}

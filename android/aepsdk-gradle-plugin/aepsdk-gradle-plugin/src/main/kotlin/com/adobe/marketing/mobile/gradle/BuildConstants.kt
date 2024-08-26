@@ -99,7 +99,7 @@ object BuildConstants {
         const val ANDROIDX_TEST_EXT_JUNIT = "androidx.test.ext:junit:${Versions.ANDROIDX_TEST_EXT_JUNIT}"
         const val ANDROIDX_TEST_RUNNER = "androidx.test:runner:${Versions.ANDROIDX_TEST_RUNNER}"
         const val ANDROIDX_TEST_ORCHESTRATOR = "androidx.test:orchestrator:${Versions.ANDROIDX_TEST_ORCHESTRATOR}"
-        const val ANDROIDX_TEST_UIAUTOMATOR = "androidx.test.uiautomator:${Versions.ANDROIDX_TEST_UIAUTOMATOR}"
+        const val ANDROIDX_TEST_UIAUTOMATOR = "androidx.test.uiautomator:uiautomator:${Versions.ANDROIDX_TEST_UIAUTOMATOR}"
         const val COMPOSE_UI_TEST_JUNIT4 = "androidx.compose.ui:ui-test-junit4:${Versions.COMPOSE}"
         const val COMPOSE_UI_TEST_MANIFEST = "androidx.compose.ui:ui-test-manifest:${Versions.COMPOSE}"
         const val ESPRESSO_CORE = "androidx.test.espresso:espresso-core:${Versions.ESPRESSO_CORE}"

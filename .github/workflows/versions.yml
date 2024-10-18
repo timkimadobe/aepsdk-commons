@@ -89,7 +89,7 @@ jobs:
         if [ "${{ inputs.update }}" = "true" ]; then
           UPDATE_FLAG="--update"
         fi
-        sh ./aepsdk-commons/scripts/versions.py \
+        sh ./.github/aepsdk-commons/scripts/versions.py \
           $UPDATE_FLAG \
           -v "${{ inputs.version }}" \
           -p "${{ inputs.paths }}" \

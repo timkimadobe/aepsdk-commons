@@ -1,0 +1,116 @@
+name: Update or Validate Versions
+
+# Currently this workflow relies on one secret:
+# - GITHUB_TOKEN: Required for creating a release on GitHub
+# It can be passed using the `secrets: inherit` option in the caller workflow file.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'New version to use for the extension. Example: 1.5.2'
+        required: true
+        type: string
+
+      branch:
+        description: 'Branch to be used when updating versions'
+        required: true
+        type: string
+
+      dependencies:
+        description: |
+          A comma-separated list of dependencies with their versions. 
+          Each dependency can optionally specify the files where it applies using the `@` symbol.
+          
+          **Syntax:** `<name> <version>[@file1[,file2,...]]`
+
+          - If the `@` syntax is used, the dependency will only apply to the specified files.
+          - If the `@` symbol is omitted, the dependency applies to all relevant files.
+
+          **Example:**
+          `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec, Edge 3.2.1@Package.swift"`
+
+        required: false
+        type: string
+        default: ''
+
+      paths:
+        description: |
+          A comma-separated list of absolute or relative file paths to update or verify. 
+          Each path can optionally specify a pattern type using the syntax:
+          
+          **Syntax:** `path[:file_type]`
+
+          **Example:**
+          `"src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test"`
+
+          This argument is required.
+          
+        required: true
+        type: string
+
+      update:
+        description: |
+          If provided, the script will update the versions in the specified files. 
+          If omitted, the script will verify the existing versions instead.
+
+          **Usage Example:**
+          ```
+          --update -v 6.7.8 \
+          -p "Package.swift:swift_spm, AEPCore/Tests/MobileCoreTests.swift:swift_test_version, AEPCore/Sources/eventhub/EventHubConstants.swift:swift_version_number, AEPCore/Sources/configuration/ConfigurationConstants.swift, AEPCore.podspec, AEPCore.xcodeproj/project.pbxproj" \
+          -d "AEPRulesEngine 7.8.9, AEPServices 8.9.10@AEPCore.podspec"
+          ```
+
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  update-versions:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4.1.7
+      with:
+        repository: ${{ github.repository }}
+        ref: ${{ inputs.branch }}
+
+    - name: Download scripts from aepsdk-commons
+      uses: actions/checkout@v4.1.7
+      with:
+        repository: adobe/aepsdk-commons
+        ref: main
+        path: .github/aepsdk-commons
+        sparse-checkout: 'scripts' # Only checkout the scripts directory
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update Versions
+      run: |
+        UPDATE_FLAG=""
+        if [ "${{ inputs.update }}" = "true" ]; then
+          UPDATE_FLAG="--update"
+        fi
+        sh ./aepsdk-commons/scripts/versions.py \
+          $UPDATE_FLAG \
+          -v "${{ inputs.version }}" \
+          -p "${{ inputs.paths }}" \
+          -d "${{ inputs.dependencies }}"
+
+    - name: Remove downloaded scripts from aepsdk-commons
+      run: rm -rf ./aepsdk-commons
+
+    - name: Configure Git
+      run: |
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "github-actions[bot]"
+
+    - name: Create Pull Request
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        branch_name="version-${{ inputs.version }}-update"
+        git checkout -b $branch_name
+        git add .
+        git commit -m "Updating version to ${{ inputs.version }}."
+        git push origin $branch_name
+        gh pr create --base ${{ inputs.branch }} --head $branch_name --title "Updating version to ${{ inputs.version }}" --body "Updating version to ${{ inputs.version }}"
+      

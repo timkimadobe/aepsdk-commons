@@ -599,6 +599,8 @@ def parse_dependencies(dependencies_str: str) -> list[Dependency]:
         if not dependency_name.startswith('AEP'):
             dependency_name = f'AEP{dependency_name}'
 
+        print(f"Dependency: name={dependency_name}, version={dependency_version}, files={absolute_file_paths}")
+
         dependencies_list.append(
             Dependency(name=dependency_name, version=dependency_version, absolute_file_paths=absolute_file_paths)
         )

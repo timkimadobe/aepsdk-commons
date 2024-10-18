@@ -1,4 +1,4 @@
-name: Update or Validate Versions
+name: Update or Verify Versions
 
 # Currently this workflow relies on one secret:
 # - GITHUB_TOKEN: Required for creating a release on GitHub
@@ -83,7 +83,7 @@ jobs:
         sparse-checkout: 'scripts' # Only checkout the scripts directory
         token: ${{ secrets.GITHUB_TOKEN }} # TESTING: When finished, remove this as not needed when within the same org
 
-    - name: Update Versions
+    - name: Update or Verify Versions
       run: |
         UPDATE_FLAG=""
         if [ "${{ inputs.update }}" = "true" ]; then

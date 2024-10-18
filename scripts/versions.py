@@ -590,8 +590,9 @@ def parse_dependencies(dependencies_str: str) -> list[Dependency]:
 
         dependency_name, dependency_version = base_parts
         files = dep_parts[1].split(',') if len(dep_parts) > 1 else None
-        absolute_file_paths = []
+        absolute_file_paths = None
         if files: 
+            absolute_file_paths = []
             for file in files:
                 absolute_file_paths.append(convert_to_absolute_path(file))
 

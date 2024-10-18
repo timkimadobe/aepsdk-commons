@@ -78,7 +78,7 @@ jobs:
       uses: actions/checkout@v4.1.7
       with:
         repository: timkimadobe/aepsdk-commons # TESTING: When finished, change to adobe/aepsdk-commons
-        ref: main
+        ref: version-script-update # TESTING: When finished, change to main
         path: .github/aepsdk-commons
         sparse-checkout: 'scripts' # Only checkout the scripts directory
         token: ${{ secrets.GITHUB_TOKEN }} # TESTING: When finished, remove this as not needed when within the same org

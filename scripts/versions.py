@@ -71,9 +71,10 @@ class RegexPattern:
     """
     pattern: str
     description: str
+    version: str | None = None
 
     def __iter__(self):
-        return iter((self.pattern, self.description))
+        return iter((self.pattern, self.version, self.description))
 
 @dataclass
 class RegexTemplate:
@@ -471,7 +472,7 @@ def convert_to_absolute_path(file_path: str) -> str:
     return file_path
 
 # Example path: "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test"
-def parse_paths(paths: str) -> list[FilePatternGroup]:
+def parse_paths(paths: str, version: str) -> list[FilePatternGroup]:
     """
     Parses a comma-separated list of file paths and their optional pattern types, returning a list 
     of `FilePatternGroup` objects. Each path can optionally specify a pattern type by separating it 
@@ -527,12 +528,17 @@ def parse_paths(paths: str) -> list[FilePatternGroup]:
         else:
             file_extension = os.path.splitext(path)[1]
             applicable_patterns = STATIC_REGEX_PATTERNS.get(file_extension, [])
+        
+        remapped_patterns = [
+            RegexPattern(pattern=pattern.pattern, description=pattern.description, version=version)
+            for pattern in applicable_patterns
+        ]
 
         # Create a FilePatternGroup object with the path, type, and patterns, and store it
         paths_list.append(FilePatternGroup(
             path=file_path.strip(), 
             file_pattern_type=file_type.strip() if file_type else None,
-            patterns=applicable_patterns
+            patterns=remapped_patterns
         ))
 
     return paths_list
@@ -658,7 +664,7 @@ def process_file_version(version: str, file_pattern_group: FilePatternGroup, dep
     print(f"  * File path: {path}")
     
     # Filter dependencies for the current file
-    applicable_dependencies = []
+    applicable_dependencies: list[Dependency] = []
     for dependency in dependencies:
         if dependency.absolute_file_paths is None or path in dependency.absolute_file_paths:
             applicable_dependencies.append(dependency)
@@ -679,7 +685,7 @@ def process_file_version(version: str, file_pattern_group: FilePatternGroup, dep
                 for regex_template in dependency_regex_templates:
                     generated_pattern = regex_template.template(dependency)
                     print(f"  * Template applied for dependency '{dependency.name}' - Pattern description: {regex_template.description} - Final pattern: {generated_pattern}")
-                    applicable_patterns.append(RegexPattern(pattern=generated_pattern, description=regex_template.description))
+                    applicable_patterns.append(RegexPattern(pattern=generated_pattern, version=dependency.version, description=regex_template.description))
 
     if not applicable_patterns:
         print(f"  * WARNING: No valid regex patterns defined for file type '{file_extension}' in '{file_name}'. Skipping...")
@@ -698,6 +704,7 @@ def process_file_version(version: str, file_pattern_group: FilePatternGroup, dep
         for applicable_pattern in applicable_patterns:
             regex_pattern = applicable_pattern.pattern
             label = applicable_pattern.description
+            pattern_version = applicable_pattern.version
             version_regex = TEST_VERSION_REGEX if label == 'version' else VERSION_REGEX
             # Compile regex with two capture groups: the pattern and the version
             # Notice the two parentheses added around the pattern and version regex
@@ -707,13 +714,13 @@ def process_file_version(version: str, file_pattern_group: FilePatternGroup, dep
                 if is_update_mode:
                     # Use a named capture group to avoid incorrectly merging the group and version.
                     # ex without named capture group: capture group \\1 and version 6.7.8 -> \\16.7.8 (interpreted as capture group 16)
-                    replaced_line = pattern.sub(f"\\g<1>{version}", line)
-                    print(f"Updated '{label}' to '{version}' in '{file_name}'")
+                    replaced_line = pattern.sub(f"\\g<1>{pattern_version}", line)
+                    print(f"Updated '{label}' to '{pattern_version}' in '{file_name}'")
                 else:
                     current_version = match.group(2)
                     # Verify the version
-                    if current_version == version:
-                        print(f"PASS '{label}' with pattern `{regex_pattern}` matches '{version}' in '{file_name}'")
+                    if current_version == pattern_version:
+                        print(f"PASS '{label}' with pattern `{regex_pattern}` matches '{pattern_version}' in '{file_name}'")
                         matched_patterns.append(applicable_pattern)
         new_content.append(replaced_line)
 
@@ -776,7 +783,7 @@ def process(args: Namespace):
 
     validation_passed = True
 
-    file_pattern_groups = parse_paths(paths)
+    file_pattern_groups = parse_paths(paths, version)
     dependencies = parse_dependencies(args.dependencies)
     for file_pattern_group in file_pattern_groups:
         validation_passed = process_file_version(version, file_pattern_group, dependencies, is_update_mode) and validation_passed

@@ -20,7 +20,7 @@ on:
       dependencies:
         description: |
           A comma-separated list of dependencies with their versions. 
-          Each dependency can optionally specify the files where it applies using the `@` symbol.
+          Each dependency can optionally specify the file paths where it applies using the `@` symbol.
           
           **Syntax:** `<name> <version>[@file_path1[,file_path2,...]]`
 

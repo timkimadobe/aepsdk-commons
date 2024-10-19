@@ -395,10 +395,11 @@ def parse_arguments() -> Namespace:
         
         -d, --dependencies (str, optional): 
             A comma-separated list of dependencies with their versions. Each dependency can 
-            optionally specify the files where it applies using the `@` symbol. 
+            optionally specify the file paths where it applies using the `@` symbol. 
             - Syntax: 
-                `<name> <version>[@file1[,file2,...]]`
+                `<name> <version>[@file_path1[,file_path2,...]]`
             - If the `@` syntax is used, the dependency will only be applied to the specified files.
+            - When specifying custom files, you must provide either an absolute or relative path to each file.
             - If the `@` symbol is omitted, the dependency applies to all relevant files.
             Example: 
                 `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec, Edge 3.2.1@Package.swift"`
@@ -406,9 +407,9 @@ def parse_arguments() -> Namespace:
         -p, --paths (str): 
             A comma-separated list of absolute or relative file paths to update or verify. 
             Each path can optionally specify a pattern type using the syntax:
-                `path[:file_type]`
+                `path[:pattern_type]`
             - Example: 
-                `"src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test"`
+                `"src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:swift_test_version"`
             This argument is required.
 
         -u, --update (flag): 

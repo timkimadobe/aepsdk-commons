@@ -63,6 +63,9 @@ class RegexPattern:
 
         description (str): 
             A human-readable description of what the pattern matches.
+        
+        version (str): 
+            The version to use, following semantic versioning (ex: '3.1.1').
 
     Methods:
         __iter__() -> Iterator[tuple[str, str]]:
@@ -181,7 +184,7 @@ def get_ios_repo_name(dependency: Dependency) -> str:
 
     Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1')
+            Dependency(name='AEPCore', version='3.1.1', absolute_file_paths=None)
 
         Output:
             "https://github.com/adobe/aepsdk-core-ios.git"
@@ -215,7 +218,7 @@ def gradle_properties_template(dependency: Dependency) -> str:
 
     Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1')
+            Dependency(name='AEPCore', version='3.1.1', absolute_file_paths=None)
 
         Output:
             "^[\\s\\S]*mavenCoreVersion\\s*=\\s*"
@@ -240,7 +243,7 @@ def swift_spm_template(dependency: Dependency) -> str:
 
     Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1')
+            Dependency(name='AEPCore', version='3.1.1', absolute_file_paths=None)
 
         Output:
             "^[\\s\\S]*\\.package\\(\\s*url:\\s*\"https://github.com/adobe/aepsdk-core-ios.git\"\\s*,\\s*\\.upToNextMajor\\(\\s*from:\\s*\""
@@ -265,7 +268,7 @@ def podspec_template(dependency: Dependency) -> str:
 
     Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1')
+            Dependency(name='AEPCore', version='3.1.1', absolute_file_paths=None)
 
         Output:
             "^[\\s\\S]*s\\.dependency\\s*['\"]AEPCore['\"]\\s*,\\s*['\"]>=\\s*"
@@ -335,18 +338,14 @@ STATIC_REGEX_PATTERNS: dict[str, list[RegexPattern]] = {
     ],
 }
 """
-A dictionary mapping file extensions to a list of RegexPattern objects, each defining a regex pattern 
-to identify and match version strings in specific file types. 
+A dictionary mapping file extensions and pattern types to a list of RegexPattern objects. 
+The regex patterns aim to be permissive with whitespace to avoid blocking different formatting styles.
 
 Key:
-    - File extension as a string (e.g., '.properties', '.swift').
+    - File extension or pattern type as a string (e.g., '.properties', 'swift_test_version').
 
 Value:
-    - A list of RegexPattern objects, each containing:
-        - pattern (str): The regex pattern used to match a version string.
-        - description (str): A human-readable label describing what the pattern is matching.
-
-The regex patterns aim to be permissive with whitespace to avoid blocking different formatting styles.
+    - A list of RegexPattern objects
 """
 
 TEMPLATE_REGEX_PATTERNS: dict[str, list[RegexTemplate]] = {
@@ -370,21 +369,15 @@ TEMPLATE_REGEX_PATTERNS: dict[str, list[RegexTemplate]] = {
     ],
 }
 """
-A dictionary mapping file extensions or types to lists of RegexTemplate objects. These templates 
-generate regex patterns dynamically based on the provided `Dependency` object, allowing dependency-tied 
-version strings to be matched and updated in the corresponding files.
+A dictionary mapping file extensions or pattern types to lists of RegexTemplate objects. These templates 
+generate regex patterns dynamically based on the provided `Dependency` object, allowing dependency-specific 
+version strings to be matched and updated in their corresponding files.
 
 Key:
-    - File extension or type as a string (e.g., '.properties', 'swift_spm').
+    - File extension or pattern type as a string (e.g., '.properties', 'swift_spm').
 
 Value:
-    - A list of RegexTemplate objects, each containing:
-        - template (Callable[[Dependency], str]): A function that takes a `Dependency` object and 
-            returns a regex pattern as a string.
-        - description (str): A human-readable description of what the generated regex pattern matches.
-
-The templates are used to inject specific dependency names and versions into regex patterns, ensuring 
-flexibility for various dependency management formats (e.g., Gradle properties, Swift SPM, CocoaPods).
+    - A list of RegexTemplate objects.
 """
 
 def parse_arguments() -> Namespace:
@@ -546,26 +539,19 @@ def parse_paths(paths: str, version: str) -> list[FilePatternGroup]:
 def parse_dependencies(dependencies_str: str) -> list[Dependency]:
     """
     Parses a comma-separated string of dependencies and their versions, returning a list of 
-    `Dependency` objects. Each dependency in the input string can optionally be scoped to specific 
-    files using the `@` symbol. If no files are specified, the dependency applies to all files.
+    `Dependency` objects. 
 
     Dependencies that do not start with the prefix `AEP` are automatically standardized by adding 
     the `AEP` prefix to the name.
 
     Parameters:
         dependencies_str (str): 
-            A comma-separated string of dependencies with their versions. Each dependency should 
-            follow the format:
-                `<name> <version>[@file1[,file2,...]]`
-            - `@file1[,file2,...]` (optional): Specifies the files where the dependency applies.
-              If omitted, the dependency applies to all files.
-            Example: 
-                "AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec, Edge 3.2.1@Package.swift"
+            A comma-separated string of dependencies with their versions. See `parse_arguments()` 
+            for more on dependency string formatting options.
 
     Returns:
         list[Dependency]: 
-            A list of `Dependency` objects, each containing a standardized name, version, and an
-            optional list of absolute file paths where the dependency applies
+            A list of `Dependency` objects.
 
     Example:
         Input:
@@ -577,12 +563,6 @@ def parse_dependencies(dependencies_str: str) -> list[Dependency]:
                 Dependency(name='AEPEdge', version='3.2.1', file_paths=['/path/to/Package.swift']),
                 Dependency(name='AEPRulesEngine', version='7.8.9', file_paths=None)
             ]
-
-    Notes:
-        - Dependencies without the `@` symbol apply to all files by default.
-        - If file paths are specified, they are converted to absolute paths using the 
-          `convert_to_absolute_path` function.
-
     """
     dependencies_list: list[Dependency] = []
     dependencies_input: list[str] = [dep.strip() for dep in dependencies_str.split(',')]
@@ -633,10 +613,9 @@ def process_file_version(version: str, file_pattern_group: FilePatternGroup, dep
             The version to apply or verify. Example: "6.7.8".
         file_pattern_group (FilePatternGroup): 
             An object representing the file path, pattern type (if any), and the regex patterns 
-            associated with the file. 
+            associated with the file.
         dependencies (list[Dependency] | None): 
-            A list of `Dependency` objects, each containing a dependency name, version, and an optional 
-            list of file paths where the dependency applies.
+            A list of `Dependency` objects.
         is_update_mode (bool): 
             If True, the function updates the version in the file. If False, the function verifies 
             that the versions are correct.
@@ -747,28 +726,11 @@ def process(args: Namespace):
 
     Parameters:
         args (Namespace): 
-            An argparse.Namespace object containing the following attributes:
-                - version (str): 
-                    The version to update or verify in the files. 
-                    Example: "6.7.8".
-                - paths (str): 
-                    A comma-separated list of file paths to update or verify.
-                    Each path can optionally include a pattern type using the 
-                    format `path[:file_type]`.
-                    Example: "Package.swift:swift_spm, AEPCore.podspec".
-                - dependencies (str, optional): 
-                    A comma-separated list of dependencies with their versions. 
-                    Optional file-specific dependencies can be included using `@`.
-                    Example: "AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec".
-                - update (bool): 
-                    If True, the script runs in **update mode** and updates versions in the files.
-                    If False (or not provided), the script runs in **verify mode**, checking if 
-                    the versions are correct.
+            An argparse.Namespace object containing the following attributes: version, paths,
+            dependencies, and update. For more details, see the `parse_arguments()` function.
 
     Returns:
-        None: 
-            This function does not return a value. It prints the results to the console and may 
-            exit with a non-zero status code if validation fails in verify mode.
+        None
 
     Raises:
         SystemExit: 

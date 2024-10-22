@@ -13,7 +13,7 @@ on:
         type: string
 
       branch:
-        description: 'Branch to be used when updating versions'
+        description: 'The target branch where the version update will be applied and the pull request will be merged into.'
         required: true
         type: string
 

@@ -1,8 +1,9 @@
 name: Update or Verify Versions
 
-# Currently this workflow relies on one secret:
-# - GITHUB_TOKEN: Required for creating a release on GitHub
-# It can be passed using the `secrets: inherit` option in the caller workflow file.
+# Currently this workflow requires the following GitHub repo settings:
+# (Code and automation) Actions -> General: under Workflow permissions, allow: 
+# 1. Read and write permissions
+# 2. Allow GitHub Actions to create and approve pull requests
 
 on:
   workflow_call:
@@ -29,8 +30,8 @@ on:
           - If the `@` symbol is omitted, the dependency applies to all relevant files.
 
           **Example:**
-          `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec, Edge 3.2.1@Package.swift"`
-
+          iOS: `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec, Edge 3.2.1@Package.swift"`
+          Android: `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties"`
         required: false
         type: string
         default: ''
@@ -46,7 +47,6 @@ on:
           `"src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:swift_test_version"`
 
           This argument is required.
-          
         required: true
         type: string
 
@@ -55,13 +55,22 @@ on:
           If provided, the script will update the versions in the specified files. 
           If omitted, the script will verify the existing versions instead.
 
-          **Usage Example:**
+          **Example:**
+          iOS: 
           ```
-          --update -v 6.7.8 \
+          --update \ # Remove this flag if you want to verify the versions instead
+          -v 6.7.8 \
           -p "Package.swift:swift_spm, AEPCore/Tests/MobileCoreTests.swift:swift_test_version, AEPCore/Sources/eventhub/EventHubConstants.swift:swift_version_number, AEPCore/Sources/configuration/ConfigurationConstants.swift, AEPCore.podspec, AEPCore.xcodeproj/project.pbxproj" \
           -d "AEPRulesEngine 7.8.9, AEPServices 8.9.10@AEPCore.podspec"
           ```
 
+          Android:
+          ```
+          --update \ # Remove this flag if you want to verify the versions instead
+          -v 6.7.8 \
+          -p "code/edge/src/main/java/com/adobe/marketing/mobile/EdgeConstants.java, code/gradle.properties" \
+          -d "AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties"
+          ```
         required: false
         type: boolean
         default: false
@@ -80,22 +89,16 @@ jobs:
       uses: actions/cache@v4.1.1
       with:
         path: .github/aepsdk-commons/scripts
-        # key: aepsdk-commons-versioning-1.0.0 # Cache key format: <REPO_NAME>-<TAG>
-        key: aepsdk-commons-versioning-1.2.4 # TESTING: When finished, change to production tag
+        key: aepsdk-commons-versioning-1.0.0 # Cache key format: <REPO_NAME>-<TAG>
       
     - name: Download scripts from aepsdk-commons
       if: steps.cache-scripts.outputs.cache-hit != 'true'
       uses: actions/checkout@v4.1.7
       with:
-        # repository: adobe/aepsdk-commons
-        # ref: versioning-1.0.0
-        # path: .github/aepsdk-commons
-        # sparse-checkout: 'scripts' # Only checkout the scripts directory
-        repository: timkimadobe/aepsdk-commons # TESTING: When finished, change to adobe/aepsdk-commons
-        ref: versioning-1.2.4 # TESTING: When finished, change to main
+        repository: adobe/aepsdk-commons
+        ref: versioning-1.0.0
         path: .github/aepsdk-commons
         sparse-checkout: 'scripts' # Only checkout the scripts directory
-        token: ${{ secrets.GITHUB_TOKEN }} # TESTING: When finished, remove this as not needed when within the same org
 
     - name: Update or Verify Versions
       run: |

@@ -108,8 +108,8 @@ jobs:
           -p "${{ inputs.paths }}" \
           -d "${{ inputs.dependencies }}"
 
-    - name: Remove downloaded scripts from aepsdk-commons
-      run: rm -rf ./.github/aepsdk-commons
+    # - name: Remove downloaded scripts from aepsdk-commons
+    #   run: rm -rf ./.github/aepsdk-commons
 
     - name: Configure Git
       run: |

@@ -79,7 +79,7 @@ jobs:
       id: cache-scripts
       uses: actions/cache@v4.1.1
       with:
-        path: .github/aepsdk-commons/scripts
+        path: ${{ runner.temp }}/aepsdk-commons/scripts
         key: aepsdk-commons-versioning-1.2.3
       
     - name: Download scripts from aepsdk-commons
@@ -88,11 +88,11 @@ jobs:
       with:
         # repository: adobe/aepsdk-commons
         # ref: versioning-1.2.3
-        # path: .github/aepsdk-commons
+        # path: ${{ runner.temp }}/aepsdk-commons
         # sparse-checkout: 'scripts' # Only checkout the scripts directory
         repository: timkimadobe/aepsdk-commons # TESTING: When finished, change to adobe/aepsdk-commons
         ref: versioning-1.2.3 # TESTING: When finished, change to main
-        path: .github/aepsdk-commons
+        path: ${{ runner.temp }}/aepsdk-commons
         sparse-checkout: 'scripts' # Only checkout the scripts directory
         token: ${{ secrets.GITHUB_TOKEN }} # TESTING: When finished, remove this as not needed when within the same org
 
@@ -102,14 +102,11 @@ jobs:
         if [ "${{ inputs.update }}" = "true" ]; then
           UPDATE_FLAG="--update"
         fi
-        python3 ./.github/aepsdk-commons/scripts/versions.py \
+        python3 ${{ runner.temp }}/aepsdk-commons/scripts/versions.py \
           $UPDATE_FLAG \
           -v "${{ inputs.version }}" \
           -p "${{ inputs.paths }}" \
           -d "${{ inputs.dependencies }}"
-
-    - name: Remove downloaded scripts from aepsdk-commons
-      run: rm -rf ./.github/aepsdk-commons
 
     - name: Configure Git
       run: |

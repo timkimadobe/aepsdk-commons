@@ -86,10 +86,15 @@ jobs:
       if: steps.cache-scripts.outputs.cache-hit != 'true'
       uses: actions/checkout@v4.1.7
       with:
-        repository: adobe/aepsdk-commons
-        ref: versioning-1.2.3
+        # repository: adobe/aepsdk-commons
+        # ref: versioning-1.2.3
+        # path: .github/aepsdk-commons
+        # sparse-checkout: 'scripts' # Only checkout the scripts directory
+        repository: timkimadobe/aepsdk-commons # TESTING: When finished, change to adobe/aepsdk-commons
+        ref: versioning-1.2.3 # TESTING: When finished, change to main
         path: .github/aepsdk-commons
         sparse-checkout: 'scripts' # Only checkout the scripts directory
+        token: ${{ secrets.GITHUB_TOKEN }} # TESTING: When finished, remove this as not needed when within the same org
 
     - name: Update or Verify Versions
       run: |

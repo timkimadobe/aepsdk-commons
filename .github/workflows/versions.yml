@@ -79,7 +79,7 @@ jobs:
       id: cache-scripts
       uses: actions/cache@v4.1.1
       with:
-        path: ${{ runner.temp }}/aepsdk-commons/scripts
+        path: .github/aepsdk-commons/scripts
         key: aepsdk-commons-versioning-1.2.4
       
     - name: Download scripts from aepsdk-commons
@@ -88,11 +88,11 @@ jobs:
       with:
         # repository: adobe/aepsdk-commons
         # ref: versioning-1.2.3
-        # path: ${{ runner.temp }}/aepsdk-commons
+        # path: .github/aepsdk-commons
         # sparse-checkout: 'scripts' # Only checkout the scripts directory
         repository: timkimadobe/aepsdk-commons # TESTING: When finished, change to adobe/aepsdk-commons
         ref: versioning-1.2.4 # TESTING: When finished, change to main
-        path: ${{ runner.temp }}/aepsdk-commons
+        path: .github/aepsdk-commons
         sparse-checkout: 'scripts' # Only checkout the scripts directory
         token: ${{ secrets.GITHUB_TOKEN }} # TESTING: When finished, remove this as not needed when within the same org
 
@@ -102,11 +102,14 @@ jobs:
         if [ "${{ inputs.update }}" = "true" ]; then
           UPDATE_FLAG="--update"
         fi
-        python3 ${{ runner.temp }}/aepsdk-commons/scripts/versions.py \
+        python3 ./.github/aepsdk-commons/scripts/versions.py \
           $UPDATE_FLAG \
           -v "${{ inputs.version }}" \
           -p "${{ inputs.paths }}" \
           -d "${{ inputs.dependencies }}"
+
+    - name: Remove downloaded scripts from aepsdk-commons
+      run: rm -rf ./.github/aepsdk-commons
 
     - name: Configure Git
       run: |
@@ -119,7 +122,7 @@ jobs:
       run: |
         branch_name="version-${{ inputs.version }}-update"
         git checkout -b $branch_name
-        git add .
+        git add . ':!./.github/aepsdk-commons/' # Avoid adding the aepsdk-commons directory
         git commit -m "Updating version to ${{ inputs.version }}."
         git push origin $branch_name
         gh pr create --base ${{ inputs.branch }} --head $branch_name --title "Updating version to ${{ inputs.version }}" --body "Updating version to ${{ inputs.version }}"

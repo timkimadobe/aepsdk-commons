@@ -12,38 +12,40 @@
 
 name: Publish Release (Android)
 
+# This workflow relies on the following secrets:
+# - GITHUB_TOKEN: Required for creating a release on GitHub
+# - GPG_SECRET_KEYS
+# - GPG_OWNERTRUST
+# - SONATYPE_USERNAME
+# - SONATYPE_PASSWORD
+# These can be passed using the `secrets: inherit` option in the caller workflow file.
+
 on: 
   workflow_call:
     inputs:
       tag:
-        description: 'Existing tag (version) being released (ex: 5.0.1)'
-        required: true
+        description: >
+          The tag (version) to be released (ex: 1.2.3). The workflow will automatically prepend the "v" prefix, resulting in a tag like "v1.2.3".
         type: string
+        required: true
 
       create-github-release:
-        description: 'Create GitHub release with tag? ("false" to skip)'
+        description: >
+          Boolean flag that determines whether to create a GitHub release. If the specified `tag` does not exist, it will be created.
+        type: boolean
         required: true
+        default: true
+
+      release-variant:
+        description: > 
+          The variant used to control the GitHub release title suffix and Maven publish command (ex: core -> v3.2.1-core & make core-publish-main). 
+          If not specified, uses the default values for both.
         type: string
-
-      dependencies:
-        description: |
-          A comma-separated list of dependencies with their versions to verify. 
-          Each dependency can optionally specify the files where it applies using the `@` symbol.
-          
-          **Syntax:** `<name> <version>[@file1[,file2,...]]`
-
-          - If the `@` syntax is used, the dependency will only apply to the specified files.
-          - If the `@` symbol is omitted, the dependency applies to all relevant files.
-
-          **Example:**
-          `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties"`
-
         required: false
-        type: string
         default: ''
 
-      paths:
-        description: |
+      version-verify-paths:
+        description: >
           A comma-separated list of absolute or relative file paths to verify. 
           Each path can optionally specify a pattern type using the syntax:
           
@@ -53,9 +55,31 @@ on:
           `"code/edge/src/main/java/com/adobe/marketing/mobile/EdgeConstants.java, code/gradle.properties"`
 
           This argument is required.
-          
-        required: true
         type: string
+        required: true
+
+      version-verify-dependencies:
+        description: >
+          A comma-separated list of dependencies with their versions. Each dependency can 
+          optionally specify the semicolon-separated list of file paths where it applies using the `@` symbol.
+          
+          **Syntax:** `<name> <version>[@file_path1[;file_path2;...]]`
+
+          - If the `@` syntax is used, the dependency will only apply to the specified files.
+          - If the `@` symbol is omitted, the dependency applies to all relevant files.
+          - When specifying custom files, you must provide either an absolute or relative path to each file.
+
+          **Example:**
+          `"Core 7.8.9, EdgeIdentity 8.9.10@code/gradle.properties"`
+        type: string
+        required: false
+        default: ''
+
+      workflow_tag:
+        description: 'The tag or ref of the reusable workflow being invoked (ex: gha-android-1.0.0).'
+        type: string
+        required: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -75,35 +99,57 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
           restore-keys: ${{ runner.os }}-gradle
       
-      - name: Checkout scripts Directory from aepsdk-commons
+      - name: Restore cached scripts from aepsdk-commons
+        id: cache-scripts
+        uses: actions/cache@v4.1.1
+        with:
+          path: .github/aepsdk-commons/scripts
+          key: aepsdk-commons-${{ inputs.workflow_tag }} # Cache key format: <REPO_NAME>-<TAG>
+
+      - name: Download scripts from aepsdk-commons
+        if: steps.cache-scripts.outputs.cache-hit != 'true'
         uses: actions/checkout@v4.1.7
         with:
           repository: adobe/aepsdk-commons
-          ref: main
+          ref: ${{ inputs.workflow_tag }}
           path: .github/aepsdk-commons
           sparse-checkout: 'scripts' # Only checkout the scripts directory
-      
-      - name: Verify Versions
+
+      - uses: actions/cache/save@v4.1.1
+        if: steps.cache-scripts.outputs.cache-hit != 'true'
+        with:
+          path: .github/aepsdk-commons/scripts
+          key: aepsdk-commons-${{ inputs.workflow_tag }} # Cache key format: <REPO_NAME>-<TAG>
+        
+      - name: Verify versions
         run: |
           set -eo pipefail
           echo Release version: ${{ github.event.inputs.tag }}
           python3 ./.github/aepsdk-commons/scripts/versions.py \
             -v "${{ github.event.inputs.tag }}" \
-            -p "${{ inputs.paths }}" \
-            -d "${{ inputs.dependencies }}"
+            -p "${{ inputs.version-verify-paths }}" \
+            -d "${{ inputs.version-verify-dependencies }}"
 
-      - name: Remove called repository
+      - name: Remove scripts from aepsdk-commons
         run: rm -rf .github/aepsdk-commons
 
-      - name: Create GH Release
-        if: ${{ inputs.create-github-release == 'true' }}
+      - name: Create GitHub release
+        if: ${{ inputs.create-github-release }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create v${{ github.event.inputs.tag }} \
-            --verify-tag \
+          # Initialize the title with the tag
+          TITLE="v${{ github.event.inputs.tag }}"
+
+          # Append suffix if provided (non-empty)
+          if [ -n "${{ inputs.release-variant }}" ]; then
+            TITLE="${TITLE}-${{ inputs.release-variant }}"
+          fi
+
+          # Create the GitHub release with the constructed title
+          gh release create "v${{ github.event.inputs.tag }}" \
             --generate-notes \
-            --title "v${{ github.event.inputs.tag }}"
+            --title "${TITLE}"
 
       - name: Import GPG key
         env:
@@ -114,7 +160,12 @@ jobs:
           echo $GPG_OWNERTRUST | base64 --decode | gpg --import-ownertrust --no-tty --batch --yes
 
       - name: Publish to Maven Central Repository
-        run: make ci-publish
+        run: |
+          if [ -n "${{ inputs.release-variant }}" ]; then
+            make "${{ inputs.release-variant }}-publish-main"
+          else
+            make ci-publish
+          fi
         env:
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}

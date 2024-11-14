@@ -18,7 +18,7 @@ name: Update or Validate Versions
 #    - "Allow GitHub Actions to create and approve pull requests."
 
 env:
-  WORKFLOW_TAG: gha-ios-5.0.0
+  WORKFLOW_TAG: versions-update
 
 on:
   workflow_call:
@@ -81,21 +81,21 @@ jobs:
   update-versions:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4.1.7
+    - uses: actions/checkout@v1.2.3
       with:
         repository: ${{ github.repository }}
         ref: ${{ inputs.branch }}
 
     - name: Restore cached scripts from aepsdk-commons
       id: cache-scripts
-      uses: actions/cache@v4.1.2
+      uses: actions/cache@v1.2.3
       with:
         path: .github/aepsdk-commons/scripts
         key: aepsdk-commons-${{ env.WORKFLOW_TAG }} # Cache key format: <REPO_NAME>-<TAG>
       
     - name: Download scripts from aepsdk-commons
       if: steps.cache-scripts.outputs.cache-hit != 'true'
-      uses: actions/checkout@v4.1.7
+      uses: actions/checkout@v1.2.3
       with:
         repository: adobe/aepsdk-commons
         ref: ${{ env.WORKFLOW_TAG }}

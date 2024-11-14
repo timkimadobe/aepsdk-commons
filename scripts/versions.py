@@ -108,8 +108,8 @@ class RegexTemplate:
     A data class representing a regex template used for generating patterns dynamically based on a dependency.
 
     Attributes:
-        template (Callable[[Dependency], str]): 
-            A callable function that takes a `Dependency` object as input and returns a regex 
+        template (Callable[[str], str]): 
+            A callable function that takes a dependency name str as input and returns a regex 
             pattern as a string. This allows the pattern to be customized based on the dependency.
 
         description (str): 
@@ -312,7 +312,7 @@ def yml_uses_template(name: str) -> str:
 
 ROOT_DIR = get_root_dir()
 
-VERSION_ONLY_REGEX_PATTERNS: dict[str, list[RegexPattern]] = {
+STATIC_REGEX_PATTERNS: dict[str, list[RegexPattern]] = {
     # Android project regex patterns
     '.properties': [
         RegexPattern(
@@ -381,7 +381,7 @@ Value:
     - A list of RegexPattern objects
 """
 
-NAMED_VERSION_REGEX_PATTERNS: dict[str, list[RegexTemplate]] = {
+TEMPLATE_REGEX_PATTERNS: dict[str, list[RegexTemplate]] = {
     '.properties': [
         RegexTemplate(
             description='maven<dependencyName>Version',
@@ -437,11 +437,12 @@ def parse_arguments() -> Namespace:
             A comma-separated list of dependencies with their versions. Each dependency can 
             optionally specify the semicolon-separated list of file paths where it applies using the `@` symbol.
             - Syntax: 
-                `<name> <version>[@file_path1[;file_path2;...]]`
+                `<name> <version>[@file_path1[:pattern_type][;file_path2[:pattern_type];...]]`
             - If the `@` syntax is used, the dependency will only be applied to the specified files.
             - If the `@` symbol is omitted, the dependency applies to all relevant files.
             - When specifying custom file paths, you must provide either an absolute or relative path to each file.
             - If a dependency is missing a version, it will be skipped.
+            - `<name>` does not have to be regex-escaped, this is handled automatically.
             Example: 
                 iOS: `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec;AEPIdentity.podspec"`
                 Android: `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties;code/Constants.kt"`
@@ -516,33 +517,40 @@ def convert_to_absolute_path(file_path: str) -> str:
         file_path = os.path.join(ROOT_DIR, file_path)
     return file_path
 
-# Example path: "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test"
-def parse_paths(paths: list[str], version: str) -> dict[str, list[RegexPattern]]:
+def generate_versioned_patterns(paths: list[str], version: str) -> dict[str, list[RegexPattern]]:
     """
-    Parses a comma-separated list of file paths and their optional pattern types, returning a list 
-    of `FilePatternGroup` objects. Each path can optionally specify a pattern type by separating it 
-    with a colon (`:`). If no type is specified, the default pattern for the file's extension is used.
+    Generates regex patterns for a list of file paths, associating each pattern with the specified 
+    version. Each path can optionally specify a pattern type by appending it after a colon (`:`). 
+    If no type is specified, a default pattern based on the file's extension is applied.
 
     Parameters:
-        paths (str): 
-            A comma-separated string containing file paths. Each path can optionally include 
-            a pattern type using the format `path[:file_type]`. Example:
-            "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test".
+        paths (list[str]): 
+            A list of file paths as strings.
+
+        version (str): 
+            The version string to use with each regex pattern.
 
     Returns:
-        list[FilePatternGroup]: 
-            A list of `FilePatternGroup` objects, where each object represents a file path, 
-            its pattern type (if any), and the associated regex patterns.
+        dict[str, list[RegexPattern]]: 
+            A dictionary where each key is an absolute file path and each value is a list of `RegexPattern` 
+            objects. Each `RegexPattern` in the list matches the specified version for the given path and type.
+
+    Raises:
+        SystemExit: 
+            If a file path does not exist or is not a valid file, the function will call `error_exit` 
+            with an appropriate message, causing the program to exit.
 
     Example:
-        Input: "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:swift_test_version"
+        Input:
+            paths = ["src/Package.swift:swift_spm", "src/Utils.swift", "src/Test.swift:swift_test_version"]
+            version = "1.2.3"
         
         Output:
-            [
-                FilePatternGroup(path='/root/src/Package.swift', file_pattern_type='swift_spm', patterns=[...]),
-                FilePatternGroup(path='/root/src/Utils.swift', file_pattern_type=None, patterns=[...]),
-                FilePatternGroup(path='/root/src/Test.swift', file_pattern_type='swift_test_version', patterns=[...])
-            ]
+            {
+                "/root/src/Package.swift": [RegexPattern(...), ...],
+                "/root/src/Utils.swift": [RegexPattern(...), ...],
+                "/root/src/Test.swift": [RegexPattern(...), ...]
+            }
     """
     
     paths_to_patterns: dict[str, list[RegexPattern]] = {}
@@ -554,11 +562,11 @@ def parse_paths(paths: list[str], version: str) -> dict[str, list[RegexPattern]]
             # Split the path into the file path and its associated pattern type
             cleaned_path, pattern_type = path.split(':', 1)
             absolute_path = convert_to_absolute_path(cleaned_path)
-            matching_patterns = VERSION_ONLY_REGEX_PATTERNS.get(pattern_type, [])
+            matching_patterns = STATIC_REGEX_PATTERNS.get(pattern_type, [])
         else:
             absolute_path = convert_to_absolute_path(path)
             file_extension = os.path.splitext(path)[1]
-            matching_patterns = VERSION_ONLY_REGEX_PATTERNS.get(file_extension, [])
+            matching_patterns = STATIC_REGEX_PATTERNS.get(file_extension, [])
 
         if not os.path.isfile(absolute_path):
             error_exit(title="File not found", message=f"File '{absolute_path}' does not exist or is not a file.")
@@ -570,21 +578,55 @@ def parse_paths(paths: list[str], version: str) -> dict[str, list[RegexPattern]]
 
     return paths_to_patterns
 
-def parse_named_versions(base_paths: list[str], named_versions_str: str) -> dict[str, list[RegexPattern]]:
+def generate_dependency_patterns(base_paths: list[str], dependencies_str: str) -> dict[str, list[RegexPattern]]:
+    """
+    Generates regex patterns for specified dependencies, mapping each dependency and version to specified 
+    or default file paths. Each dependency can optionally specify path(s) and a pattern type for each path.
+    Paths can specify a pattern type by appending it after a colon (`:`). If no type is specified, 
+    a default pattern based on the file's extension is applied.
+
+    Parameters:
+        base_paths (list[str]): 
+            A list of default file paths to apply if a dependency does not specify paths.
+
+        dependencies_str (str): 
+            A comma-separated string of dependencies with their versions and optional paths and pattern type.
+
+    Returns:
+        dict[str, list[RegexPattern]]: 
+            A dictionary where each key is an absolute file path and each value is a list of `RegexPattern` 
+            objects.
+
+    Raises:
+        SystemExit: 
+            If a file path does not exist or is not a valid file, the function will call `error_exit` 
+            with an appropriate message, causing the program to exit.
+
+    Example:
+        Input:
+            base_paths = ["src/Default.swift"]
+            dependencies_str = "adobe/aepsdk-commons 1.2.3@src/Package.swift:swift_spm, adobe/aepsdk-core 1.1.1"
+
+        Output:
+            {
+                "/root/src/Package.swift": [RegexPattern(...), ...],
+                "/root/src/Default.swift": [RegexPattern(...), ...]
+            }
+    """
     paths_to_patterns: dict[str, list[RegexPattern]] = {}
 
-    named_versions_input: list[str] = [dep.strip() for dep in named_versions_str.split(',')]
+    dependencies_input: list[str] = [dep.strip() for dep in dependencies_str.split(',')]
 
-    for named_version in named_versions_input:
-        named_version_parts = named_version.strip().split('@')
-        base_parts = named_version_parts[0].split()
+    for dependency in dependencies_input:
+        dependency_parts = dependency.strip().split('@')
+        base_parts = dependency_parts[0].split()
         if len(base_parts) != 2:
-            log_warning(title="Missing version", message=f"The named version '{named_version}' did not specify a version. Skipping...")
+            log_notice(title=f"Skipping dependency '{dependency}'", message=f"The dependency '{dependency}' did not specify a version. Skipping...")
             continue
 
         dependency_name, dependency_version = base_parts
 
-        paths = named_version_parts[1].split(';') if len(named_version_parts) > 1 else base_paths
+        paths = dependency_parts[1].split(';') if len(dependency_parts) > 1 else base_paths
 
         for path in paths:
             # Check if the path specifies a pattern type using a colon (':')
@@ -592,11 +634,11 @@ def parse_named_versions(base_paths: list[str], named_versions_str: str) -> dict
                 # Split the path into the file path and its associated pattern type
                 cleaned_path, pattern_type = path.split(':', 1)
                 absolute_path = convert_to_absolute_path(cleaned_path)
-                matching_templates = NAMED_VERSION_REGEX_PATTERNS.get(pattern_type, [])
+                matching_templates = TEMPLATE_REGEX_PATTERNS.get(pattern_type, [])
             else:
                 absolute_path = convert_to_absolute_path(path)
                 file_extension = os.path.splitext(path)[1]
-                matching_templates = NAMED_VERSION_REGEX_PATTERNS.get(file_extension, [])
+                matching_templates = TEMPLATE_REGEX_PATTERNS.get(file_extension, [])
             
             # Verify that the path points to a valid file
             if not os.path.isfile(absolute_path):
@@ -721,10 +763,10 @@ def process(args: Namespace):
 
     validation_passed = True
 
-    paths_to_patterns = parse_paths(paths, version)
-    named_versions_path_to_patterns = parse_named_versions(paths, args.dependencies)
+    paths_to_patterns = generate_versioned_patterns(paths, version)
+    dependency_paths_to_patterns = generate_dependency_patterns(paths, args.dependencies)
     # Merge the two dictionaries
-    for key, value in named_versions_path_to_patterns.items():
+    for key, value in dependency_paths_to_patterns.items():
         paths_to_patterns.setdefault(key, []).extend(value)
 
     for path, patterns in paths_to_patterns.items():

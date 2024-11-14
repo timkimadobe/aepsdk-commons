@@ -39,3 +39,4 @@ jobs:
       # paths: .github/workflows/ios-build-and-test.yml:yml_uses, .github/workflows/ios-custom-command-build-and-test.yml:yml_uses, .github/workflows/ios-release.yml:yml_uses, .github/workflows/ios-update-workflow-versions.yml:yml_uses, .github/workflows/ios-validate-code.yml:yml_uses
       paths: .github/workflows/ios-release.yml:yml_uses
       update: true
+    secrets: inherit

@@ -126,21 +126,30 @@ jobs:
     - name: Remove scripts from aepsdk-commons
       run: rm -rf .github/aepsdk-commons
 
-    - name: Configure GitHub Actions bot user
-      if: ${{ inputs.update }}
-      run: |
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git config --global user.name "github-actions[bot]"
-
     - name: Create pull request
       if: ${{ inputs.update }}
       env:
-        GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN || secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Set the default token for fallback
       run: |
+        # Set GH_TOKEN to WORKFLOW_TOKEN if it's available, otherwise fallback to GITHUB_TOKEN
+        if [ -n "${{ secrets.WORKFLOW_TOKEN }}" ]; then
+          export GH_TOKEN="${{ secrets.WORKFLOW_TOKEN }}"
+        else
+          export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+        fi
+    
+        # Configure Git and authenticate with GH_TOKEN
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+    
+        # Create and push a new branch
         branch_name="version-${{ inputs.version }}-update"
-        git checkout -b $branch_name
+        git checkout -b "$branch_name"
         git add .
         git commit -m "Updating version to ${{ inputs.version }}."
-        git push origin $branch_name
-        gh pr create --base ${{ inputs.branch }} --head $branch_name --title "Updating version to ${{ inputs.version }}" --body "Updating version to ${{ inputs.version }}"
+        git push origin "$branch_name"
+    
+        # Use the GitHub CLI to create a pull request with the correct authentication
+        gh auth login --with-token <<< "$GH_TOKEN"
+        gh pr create --base "${{ inputs.branch }}" --head "$branch_name" --title "Updating version to ${{ inputs.version }}" --body "Updating version to ${{ inputs.version }}"
       

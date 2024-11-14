@@ -28,6 +28,7 @@ on:
 jobs:
   update-versions:
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     uses: ./.github/workflows/versions.yml

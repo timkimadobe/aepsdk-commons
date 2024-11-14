@@ -30,7 +30,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: .github/workflows/versions.yml@gha-ios-5.0.0
+    uses: .github/workflows/versions.yml@versions-update
     with:
       version: gha-ios-${{ github.event.inputs.version }}
       branch: ${{ github.event.inputs.branch }}

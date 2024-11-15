@@ -435,20 +435,20 @@ def parse_arguments() -> Namespace:
         
         -d, --dependencies (str, optional): 
             A comma-separated list of dependencies with their versions. Each dependency can 
-            optionally specify the semicolon-separated list of file paths where it applies using the `@` symbol.
+            optionally specify the semicolon-separated list of file paths and associated pattern type where it 
+            applies using the `@` symbol.
             - Syntax: 
                 `<name> <version>[@file_path1[:pattern_type][;file_path2[:pattern_type];...]]`
-            - If the `@` syntax is used, the dependency will only be applied to the specified files.
-            - If the `@` symbol is omitted, the dependency applies to all relevant files.
+            - If the `@` syntax is used, the paths provided in the `-p` argument will be overridden, and the dependency will only be applied to the specified files.
             - When specifying custom file paths, you must provide either an absolute or relative path to each file.
             - If a dependency is missing a version, it will be skipped.
             - `<name>` does not have to be regex-escaped, this is handled automatically.
             Example: 
-                iOS: `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec;AEPIdentity.podspec"`
+                iOS: `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec;Package.swift:swift_spm"`
                 Android: `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties;code/Constants.kt"`
 
         -p, --paths (str): 
-            A comma-separated list of absolute or relative file paths to update or validate. 
+            A comma-separated list of absolute and/or relative file paths to update or validate. 
             Each path can optionally specify a pattern type using the syntax:
                 `path[:pattern_type]`
             - Example: 

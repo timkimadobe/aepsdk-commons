@@ -16,10 +16,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'The new version to use for the workflows (ex: 1.2.3). Becomes `gha-ios-<version>`.'
+        description: |
+          The semantic version to input for the workflows (e.g., `1.2.3`). 
+          The workflow will automatically construct the final version as `gha-ios-<version>`.
         type: string
         required: true
-
       branch:
         description: 'The target branch where the version update will be applied and the pull request will be merged into.'
         type: string
@@ -30,13 +31,11 @@ jobs:
     permissions:
       actions: write
       contents: write
-      pull-requests: write
     uses: ./.github/workflows/versions.yml
     with:
       version: gha-ios-${{ github.event.inputs.version }}
       branch: ${{ github.event.inputs.branch }}
       dependencies: adobe/aepsdk-commons/.github/workflows/versions.yml gha-ios-${{ github.event.inputs.version }}, adobe/aepsdk-commons/.github/workflows/ios-validate-code.yml gha-ios-${{ github.event.inputs.version }}, adobe/aepsdk-commons/.github/workflows/ios-custom-command-build-and-test.yml gha-ios-${{ github.event.inputs.version }}, adobe/aepsdk-commons/.github/actions/ios-setup-dependencies-action gha-ios-${{ github.event.inputs.version }},
       paths: .github/workflows/ios-build-and-test.yml:yml_uses, .github/workflows/ios-custom-command-build-and-test.yml:yml_uses, .github/workflows/ios-release.yml:yml_uses, .github/workflows/ios-validate-code.yml:yml_uses
-      # paths: .github/workflows/ios-release.yml:yml_uses, .github/workflows/ios-update-workflow-versions.yml:yml_uses, 
       update: true
     secrets: inherit

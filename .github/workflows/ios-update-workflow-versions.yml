@@ -10,15 +10,15 @@
 # governing permissions and limitations under the License.
 #
 
-name: Update Workflow Versions (iOS)
+name: Update iOS Reusable Workflow Versions
 
 on:
   workflow_dispatch:
     inputs:
       version:
         description: |
-          The semantic version to input for the workflows (e.g., `1.2.3`). 
-          The workflow will automatically construct the final version as `gha-ios-<version>`.
+          The new version to use for the iOS reusable workflows (ex: 1.2.3). 
+          The workflow will automatically construct the final version (ex: gha-ios-1.2.3).
         type: string
         required: true
       branch:

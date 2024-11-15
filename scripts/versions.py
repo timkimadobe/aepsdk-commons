@@ -611,8 +611,15 @@ def generate_dependency_patterns(base_paths: list[str], dependencies_str: str) -
             }
     """
     paths_to_patterns: dict[str, list[RegexPattern]] = {}
-
-    dependencies_input: list[str] = [dep.strip() for dep in dependencies_str.split(',')] if dependencies_str else []
+    # Break into individual dependencies, removing empty string paths
+    if dependencies_str:
+        dependencies_input: list[str] = [
+            dep.strip() 
+            for dep in dependencies_str.split(',') 
+            if dep.strip()
+        ]
+    else:
+        dependencies_input = []
 
     for dependency in dependencies_input:
         dependency_parts = dependency.strip().split('@')
@@ -754,6 +761,7 @@ def process(args: Namespace):
     """
     # Process the command-line arguments
     version = args.version
+    # Break into individual paths, removing empty string paths
     if args.paths:
         paths = [
             path.strip() 

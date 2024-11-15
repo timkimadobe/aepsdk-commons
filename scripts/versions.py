@@ -488,23 +488,21 @@ def parse_arguments() -> Namespace:
     )
 
     parser.add_argument(
-        '-v', '--version', 
-        required=True, 
+        '-v', '--version',
+        required=True,
         help='Version to update or validate for the extension. Example: 3.0.2'
     )
     parser.add_argument(
-        '-d', '--dependencies', 
-        default='none', 
+        '-d', '--dependencies',
         help='Comma-separated dependencies to update along with their version. Example: "Core 3.1.1, Edge 3.2.1"'
     )
     parser.add_argument(
-        '-p', '--paths', 
-        required=True, 
+        '-p', '--paths',
         help='Comma-separated file paths relative to the repository root to update.'
     )
     parser.add_argument(
-        '-u', '--update', 
-        action='store_true', 
+        '-u', '--update',
+        action='store_true',
         help='Updates the version. If this flag is absent, the script instead verifies if the version is correct.'
     )
 
@@ -555,7 +553,6 @@ def generate_versioned_patterns(paths: list[str], version: str) -> dict[str, lis
     
     paths_to_patterns: dict[str, list[RegexPattern]] = {}
 
-    # Example input: "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test"
     for path in paths:
         # Check if the path specifies a pattern type using a colon (':')
         if ':' in path:
@@ -615,7 +612,7 @@ def generate_dependency_patterns(base_paths: list[str], dependencies_str: str) -
     """
     paths_to_patterns: dict[str, list[RegexPattern]] = {}
 
-    dependencies_input: list[str] = [dep.strip() for dep in dependencies_str.split(',')]
+    dependencies_input: list[str] = [dep.strip() for dep in dependencies_str.split(',')] if dependencies_str else []
 
     for dependency in dependencies_input:
         dependency_parts = dependency.strip().split('@')
@@ -756,7 +753,7 @@ def process(args: Namespace):
               exits with status code 1.
     """
     version = args.version
-    paths = [path.strip() for path in args.paths.split(',')]
+    paths = [path.strip() for path in args.paths.split(',')] if args.paths else []
     is_update_mode = args.update
 
     print(f"{'Updating' if is_update_mode else 'Validating'} version {'to' if is_update_mode else 'is'} {version}")

@@ -19,7 +19,8 @@ name: Update or Validate Versions
 #
 # It also relies on the following secrets:
 # - GITHUB_TOKEN: With the permission scopes: `contents: write` and `pull-requests: write`. Required for creating a PR.
-# - WORKFLOW_TOKEN: (Optional) Required for modifying .github/workflows files.
+# - WORKFLOW_TOKEN: (Optional) An optional GitHub PAT with the minimum required scopes of `contents:write` and `workflows:write`. 
+#     Only required for Actions that need to modify .github/workflow files.
 # These can be passed using the `secrets: inherit` option in the caller workflow file.
 
 env:

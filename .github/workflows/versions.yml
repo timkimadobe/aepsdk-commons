@@ -68,7 +68,7 @@ on:
 
           **Example:**
           iOS: `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec;Package.swift:swift_spm"`
-          Android: `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties;code/Constants.kt"`
+          Android: `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties;code/Constants.kt:test_version"`
         type: string
         default: ''
 

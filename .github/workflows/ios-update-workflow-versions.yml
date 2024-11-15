@@ -37,14 +37,14 @@ jobs:
       version: gha-ios-${{ github.event.inputs.version }}
       branch: ${{ github.event.inputs.branch }}
       dependencies: >
-        adobe/aepsdk-commons/.github/workflows/versions.yml gha-ios-${{ github.event.inputs.version }}@.github/workflows/ios-release.yml:yml_uses,
-        adobe/aepsdk-commons/.github/workflows/ios-validate-code.yml gha-ios-${{ github.event.inputs.version }}@.github/workflows/ios-build-and-test.yml:yml_uses,
-        adobe/aepsdk-commons/.github/workflows/ios-custom-command-build-and-test.yml gha-ios-${{ github.event.inputs.version }}@.github/workflows/ios-build-and-test.yml:yml_uses,
-        adobe/aepsdk-commons/.github/actions/ios-setup-dependencies-action gha-ios-${{ github.event.inputs.version }}@.github/workflows/ios-build-and-test.yml:yml_uses;.github/workflows/ios-custom-command-build-and-test.yml:yml_uses;.github/workflows/ios-validate-code.yml:yml_uses
-      # paths: >
-      #   .github/workflows/ios-build-and-test.yml:yml_uses,
-      #   .github/workflows/ios-custom-command-build-and-test.yml:yml_uses,
-      #   .github/workflows/ios-release.yml:yml_uses,
-      #   .github/workflows/ios-validate-code.yml:yml_uses
-      # update: true
+        adobe/aepsdk-commons/.github/workflows/versions.yml gha-ios-${{ github.event.inputs.version }},
+        adobe/aepsdk-commons/.github/workflows/ios-validate-code.yml gha-ios-${{ github.event.inputs.version }},
+        adobe/aepsdk-commons/.github/workflows/ios-custom-command-build-and-test.yml gha-ios-${{ github.event.inputs.version }},
+        adobe/aepsdk-commons/.github/actions/ios-setup-dependencies-action gha-ios-${{ github.event.inputs.version }}
+      paths: >
+        .github/workflows/ios-build-and-test.yml:yml_uses,
+        .github/workflows/ios-custom-command-build-and-test.yml:yml_uses,
+        .github/workflows/ios-release.yml:yml_uses,
+        .github/workflows/ios-validate-code.yml:yml_uses
+      update: true
     secrets: inherit

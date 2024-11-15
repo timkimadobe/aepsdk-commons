@@ -45,10 +45,8 @@ on:
           **Example:**
           `"Package.swift:swift_spm, AEPCore/Sources/configuration/ConfigurationConstants.swift, AEPCore/Tests/MobileCoreTests.swift:swift_test_version"`
           `"code/edge/src/main/java/com/adobe/marketing/mobile/EdgeConstants.java, code/gradle.properties"`
-
-          This argument is required.
         type: string
-        required: true
+        default: ''
 
       dependencies:
         description: |
@@ -66,7 +64,6 @@ on:
           iOS: `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec;AEPIdentity.podspec"`
           Android: `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties;code/Constants.kt"`
         type: string
-        required: false
         default: ''
 
       update:
@@ -74,8 +71,8 @@ on:
           If `true`, the workflow will update the versions in the specified files. 
           If `false`, the workflow will validate the existing versions instead.
         type: boolean
-        required: false
         default: false
+
     secrets:
       WORKFLOW_TOKEN:
         description: 'An optional secret for additional configuration or authentication.'

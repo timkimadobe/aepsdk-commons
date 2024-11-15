@@ -752,8 +752,16 @@ def process(args: Namespace):
             - If version validation fails during validate mode (mismatched versions), the script 
               exits with status code 1.
     """
+    # Process the command-line arguments
     version = args.version
-    paths = [path.strip() for path in args.paths.split(',')] if args.paths else []
+    if args.paths:
+        paths = [
+            path.strip() 
+            for path in args.paths.split(',') 
+            if path.strip()
+        ]
+    else:
+        paths = []
     is_update_mode = args.update
 
     print(f"{'Updating' if is_update_mode else 'Validating'} version {'to' if is_update_mode else 'is'} {version}")

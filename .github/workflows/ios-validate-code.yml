@@ -1,0 +1,19 @@
+name: Validate Code (iOS)
+
+on:
+  workflow_call:
+
+jobs:
+  validate-code:
+    name: Validate Code
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Dependencies
+        uses: adobe/aepsdk-commons/.github/actions/ios-setup-dependencies-action@gha-ios-5.0.0
+
+      - name: Lint Source Code
+        run: make lint

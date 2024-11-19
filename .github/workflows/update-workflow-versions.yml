@@ -10,11 +10,18 @@
 # governing permissions and limitations under the License.
 #
 
-name: Update iOS Reusable Workflow Versions
+name: Update Reusable Workflow Versions
 
 on:
   workflow_dispatch:
     inputs:
+      platform:
+        description: 'The platform to update the reusable workflows for (ex: iOS, Android).'
+        type: choice
+        options:
+        - Android
+        - iOS
+        required: true
       version:
         description: |
           The new version to use for the iOS reusable workflows (ex: 1.2.3). 
@@ -27,7 +34,8 @@ on:
         required: true
 
 jobs:
-  update-versions:
+  update-versions-ios:
+    if: ${{ github.event.inputs.platform == 'iOS' }}
     permissions:
       actions: write
       contents: write
@@ -43,5 +51,20 @@ jobs:
         adobe/aepsdk-commons/.github/actions/ios-setup-dependencies-action gha-ios-${{ github.event.inputs.version }}
       paths: >
         .github/workflows:yml_uses
+      update: true
+    secrets: inherit
+  
+  update-versions-android:
+    if: ${{ github.event.inputs.platform == 'Android' }}
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/versions.yml
+    with:
+      version: gha-android-${{ github.event.inputs.version }}
+      branch: ${{ github.event.inputs.branch }}
+      dependencies: >
+        adobe/aepsdk-commons/.github/workflows/versions.yml gha-android-${{ github.event.inputs.version }}@.github/workflows/android-maven-release.yml:yml_uses
       update: true
     secrets: inherit

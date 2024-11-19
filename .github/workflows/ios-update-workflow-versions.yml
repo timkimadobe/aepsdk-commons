@@ -42,6 +42,6 @@ jobs:
         adobe/aepsdk-commons/.github/workflows/ios-custom-command-build-and-test.yml gha-ios-${{ github.event.inputs.version }},
         adobe/aepsdk-commons/.github/actions/ios-setup-dependencies-action gha-ios-${{ github.event.inputs.version }}
       paths: >
-        .github/workflows
+        .github/workflows:yml_uses
       update: true
     secrets: inherit

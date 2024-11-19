@@ -12,6 +12,8 @@
 # governing permissions and limitations under the License.
 #
 
+# Requires Python 3.10+
+
 import argparse
 import os
 import re
@@ -435,12 +437,12 @@ def parse_arguments() -> Namespace:
         
         -d, --dependencies (str, optional): 
             A comma-separated list of dependencies with their versions. Each dependency can 
-            optionally specify the semicolon-separated list of file paths and associated pattern type where it 
+            optionally specify the semicolon-separated list of file or directory paths and associated pattern type where it 
             applies using the `@` symbol.
             - Syntax: 
                 `<name> <version>[@file_path1[:pattern_type][;file_path2[:pattern_type];...]]`
             - If the `@` syntax is used, the paths provided in the `-p` argument will be overridden, and the dependency will only be applied to the specified files.
-            - When specifying custom file paths, you must provide either an absolute or relative path to each file.
+            - When specifying custom paths, you may provide either an absolute or relative path to each file.
             - If a dependency is missing a version, it will be skipped.
             - `<name>` does not have to be regex-escaped, this is handled automatically.
             Example: 
@@ -448,7 +450,7 @@ def parse_arguments() -> Namespace:
                 Android: `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties;code/Constants.kt"`
 
         -p, --paths (str): 
-            A comma-separated list of absolute and/or relative file paths to update or validate. 
+            Comma-separated list of file or directory paths, either absolute or relative to the project root, to update or validate.
             Each path can optionally specify a pattern type using the syntax:
                 `path[:pattern_type]`
             - Example: 
@@ -498,7 +500,7 @@ def parse_arguments() -> Namespace:
     )
     parser.add_argument(
         '-p', '--paths',
-        help='Comma-separated file paths relative to the repository root to update.'
+        help='Comma-separated list of file or directory paths, either absolute or relative to the project root, to update or validate.'
     )
     parser.add_argument(
         '-u', '--update',
@@ -514,6 +516,48 @@ def convert_to_absolute_path(file_path: str) -> str:
     if not file_path.startswith('/'):
         file_path = os.path.join(ROOT_DIR, file_path)
     return file_path
+
+def expand_paths(paths: list[str]) -> list[tuple[str, str | None]]:
+    """
+    Expands the provided paths into a list of absolute file paths with their associated pattern types.
+    If a path is a directory, it includes all files within that directory (non-recursive).
+    If a pattern type is specified, it is associated with each file within the directory or the file itself.
+
+    Parameters:
+        paths (list[str]):
+            A list of paths (files or directories) with optional pattern types specified after a colon.
+
+    Returns:
+        list[tuple[str, Optional[str]]]:
+            A list of tuples where each tuple contains an absolute file path and its associated pattern type.
+
+    Raises:
+        SystemExit:
+            If a path does not exist or is neither a file nor a directory.
+    """
+    expanded_paths = []
+    for path in paths:
+        cleaned_path, pattern_type = path.split(':', 1) if ':' in path else (path, None)
+        absolute_path = convert_to_absolute_path(cleaned_path)
+
+        if os.path.isdir(absolute_path):
+            # It's a directory; include all files within (non-recursive)
+            try:
+                for entry in os.scandir(absolute_path):
+                    if entry.is_file():
+                        file_path = entry.path
+                        expanded_paths.append((file_path, pattern_type))
+            except Exception as e:
+                error_exit(title="Error reading directory", message=str(e))
+        elif os.path.isfile(absolute_path):
+            # It's a file
+            expanded_paths.append((absolute_path, pattern_type))
+        else:
+            error_exit(
+                title="Path not found",
+                message=f"Path '{absolute_path}' does not exist or is not a file or directory."
+            )
+    return expanded_paths
 
 def generate_versioned_patterns(paths: list[str], version: str) -> dict[str, list[RegexPattern]]:
     """
@@ -552,26 +596,18 @@ def generate_versioned_patterns(paths: list[str], version: str) -> dict[str, lis
     """
     
     paths_to_patterns: dict[str, list[RegexPattern]] = {}
+    expanded_paths = expand_paths(paths)
 
-    for path in paths:
-        # Check if the path specifies a pattern type using a colon (':')
-        if ':' in path:
-            # Split the path into the file path and its associated pattern type
-            cleaned_path, pattern_type = path.split(':', 1)
-            absolute_path = convert_to_absolute_path(cleaned_path)
+    for file_path, pattern_type in expanded_paths:
+        if pattern_type:
             matching_patterns = STATIC_REGEX_PATTERNS.get(pattern_type, [])
         else:
-            absolute_path = convert_to_absolute_path(path)
-            file_extension = os.path.splitext(path)[1]
+            file_extension = os.path.splitext(file_path)[1]
             matching_patterns = STATIC_REGEX_PATTERNS.get(file_extension, [])
-
-        if not os.path.isfile(absolute_path):
-            error_exit(title="File not found", message=f"File '{absolute_path}' does not exist or is not a file.")
-
         for pattern in matching_patterns:
             # Create a new instance with the updated version
             pattern_with_version = replace(pattern, version=version)
-            paths_to_patterns.setdefault(absolute_path, []).append(pattern_with_version)
+            paths_to_patterns.setdefault(file_path, []).append(pattern_with_version)
 
     return paths_to_patterns
 
@@ -631,27 +667,23 @@ def generate_dependency_patterns(base_paths: list[str], dependencies_str: str) -
         dependency_name, dependency_version = base_parts
 
         paths = dependency_parts[1].split(';') if len(dependency_parts) > 1 else base_paths
+        expanded_paths = expand_paths(paths)
 
-        for path in paths:
-            # Check if the path specifies a pattern type using a colon (':')
-            if ':' in path:
-                # Split the path into the file path and its associated pattern type
-                cleaned_path, pattern_type = path.split(':', 1)
-                absolute_path = convert_to_absolute_path(cleaned_path)
+        for file_path, pattern_type in expanded_paths:
+            if pattern_type:
                 matching_templates = TEMPLATE_REGEX_PATTERNS.get(pattern_type, [])
             else:
-                absolute_path = convert_to_absolute_path(path)
-                file_extension = os.path.splitext(path)[1]
+                file_extension = os.path.splitext(file_path)[1]
                 matching_templates = TEMPLATE_REGEX_PATTERNS.get(file_extension, [])
-            
-            # Verify that the path points to a valid file
-            if not os.path.isfile(absolute_path):
-                error_exit(title="File not found", message=f"File '{absolute_path}' does not exist or is not a file.")
-
             for template in matching_templates:
                 pattern = template.generate_pattern(dependency_name)
-                regex_pattern = RegexPattern(description=template.description, pattern=pattern, version=dependency_version, version_pattern=template.version_pattern)
-                paths_to_patterns.setdefault(absolute_path, []).append(regex_pattern)
+                regex_pattern = RegexPattern(
+                    description=template.description,
+                    pattern=pattern,
+                    version=dependency_version,
+                    version_pattern=template.version_pattern
+                )
+                paths_to_patterns.setdefault(file_path, []).append(regex_pattern)
 
     return paths_to_patterns
 

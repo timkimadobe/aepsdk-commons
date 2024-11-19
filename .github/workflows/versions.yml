@@ -24,7 +24,8 @@ name: Update or Validate Versions
 # These can be passed using the `secrets: inherit` option in the caller workflow file.
 
 env:
-  WORKFLOW_TAG: gha-ios-5.0.0
+  # WORKFLOW_TAG: gha-ios-5.0.0
+  WORKFLOW_TAG: versions-update
 
 on:
   workflow_call:

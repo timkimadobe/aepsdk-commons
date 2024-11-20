@@ -12,6 +12,8 @@
 # governing permissions and limitations under the License.
 #
 
+# Requires Python 3.10+
+
 import argparse
 import os
 import re
@@ -20,6 +22,7 @@ import sys
 
 from argparse import Namespace
 from dataclasses import dataclass
+from dataclasses import replace
 from enum import Enum
 from string import Template
 from typing import Callable
@@ -41,6 +44,18 @@ def print_annotation(annotation_type: AnnotationType, title: str | None = None, 
 
     print(annotation)
 
+def log_error(title: str | None = None, message: str | None = None):
+    print_annotation(AnnotationType.ERROR, title, message)
+
+def log_warning(title: str | None = None, message: str | None = None):
+    print_annotation(AnnotationType.WARNING, title, message)
+
+def log_notice(title: str | None = None, message: str | None = None):
+    print_annotation(AnnotationType.NOTICE, title, message)
+
+def log_debug(title: str | None = None, message: str | None = None):
+    print_annotation(AnnotationType.DEBUG, title, message)
+
 def error_exit(title: str | None = None, message: str | None = None):
     """
     Prints an error message and exits the script with a status code of 1.
@@ -58,43 +73,7 @@ def error_exit(title: str | None = None, message: str | None = None):
 DIVIDER_STRING = "=" * 80
 VERSION_REGEX = r"[0-9]+\.[0-9]+\.[0-9]+"
 TEST_VERSION_REGEX = r"[1-9]+\.[0-9]+\.[0-9]+"
-DEPENDENCY_FILE_TYPES = {'.properties', '.podspec', 'swift_spm'}
-"""
-A set of file types that contain dependency version declarations. This set is used to identify files 
-that may require version updates for dependencies when processing the provided paths.
-
-File Types:
-    - '.properties': Gradle properties files containing dependency version information.
-    - '.podspec': CocoaPods specification files that declare dependencies.
-    - 'swift_spm': Swift Package Manager files that list dependencies.
-
-Usage:
-    Files with these extensions will trigger the application of dependency-specific regex patterns 
-    to update the declared versions within them.
-"""
-
-@dataclass
-class Dependency:
-    """
-    A data class representing a dependency with its name, version, and an optional list of 
-    file paths where it applies.
-
-    Attributes:
-        name (str): 
-            The name of the dependency. It is recommended to use the full dependency name 
-            with the prefix 'AEP' (ex: 'AEPEdgeBridge').
-
-        version (str): 
-            The version of the dependency, following semantic versioning (ex: '3.1.1').
-        
-        absolute_file_paths (list[str] | None): 
-            A list of absolute file paths where the dependency applies.
-            - If `None`, the dependency applies to **all files**.
-            - If a list of file paths is provided, the dependency applies **only to the specified files**.
-    """
-    name: str
-    version: str
-    absolute_file_paths: list[str] | None
+REST_OF_LINE_REGEX = r".*$"
 
 @dataclass(frozen=True) # Make the class immutable for hashability
 class RegexPattern:
@@ -116,9 +95,11 @@ class RegexPattern:
             Allows the `RegexPattern` object to be iterable, yielding a tuple containing the 
             pattern and its description.
     """
-    pattern: str
     description: str
+    pattern: str
     version: str | None = None
+    # Allows overriding the version regex to be used for the pattern
+    version_pattern: str | None = None
 
     def __iter__(self):
         return iter((self.pattern, self.version, self.description))
@@ -129,37 +110,17 @@ class RegexTemplate:
     A data class representing a regex template used for generating patterns dynamically based on a dependency.
 
     Attributes:
-        template (Callable[[Dependency], str]): 
-            A callable function that takes a `Dependency` object as input and returns a regex 
+        template (Callable[[str], str]): 
+            A callable function that takes a dependency name str as input and returns a regex 
             pattern as a string. This allows the pattern to be customized based on the dependency.
 
         description (str): 
             A human-readable description of what the pattern matches.
     """
-    template: Callable[[Dependency], str]
     description: str
-
-@dataclass
-class FilePatternGroup:
-    """
-    A data class that groups a file path with its associated pattern type and regex patterns.
-
-    Attributes:
-        path (str): 
-            The absolute path to the file being processed.
-
-        file_pattern_type (str | None): 
-            The specific pattern type for the file, if any. This allows files to be associated 
-            with custom regex patterns beyond what their file extensions imply. If no pattern 
-            type is provided, it defaults to `None`.
-
-        patterns (list[RegexPattern]): 
-            A list of `RegexPattern` objects representing the regex patterns applicable to the file. 
-            These patterns are used to match and update version declarations in the file.
-    """
-    path: str
-    file_pattern_type: str | None
-    patterns: list[RegexPattern]
+    generate_pattern: Callable[[str], str]
+    # Allows overriding the version regex to be used for the pattern
+    version_pattern: str | None = None
 
 def get_root_dir():
     """
@@ -186,140 +147,170 @@ def get_root_dir():
     except subprocess.CalledProcessError:
         error_exit(title="Git repository not found", message="Not a git repository or unable to determine root directory.")
 
-def get_dependency_name_for_gradle_properties(dependency: Dependency) -> str:
+def get_dependency_name_for_gradle_properties(name: str) -> str:
     """
-    Extracts and returns the Gradle-compatible dependency name by removing the 'AEP' prefix 
-    from the provided dependency's name. This ensures the dependency name aligns with the naming 
-    convention used in Gradle properties files.
+    Extracts and returns a Gradle-compatible dependency name by removing the 'AEP' prefix 
+    from the provided dependency name string, if present. 
 
     Parameters:
-        dependency (Dependency): 
-            A `Dependency` object containing the full name of the dependency, which typically 
-            starts with the prefix 'AEP'.
+        name (str): 
+            A string representing the full name of the dependency, which may start 
+            with the prefix 'AEP'.
 
     Returns:
         str: 
-            The dependency name with the 'AEP' prefix removed.
+            The dependency name with the 'AEP' prefix removed if it exists; otherwise, 
+            the original name is returned unchanged.
 
     Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1')
+            name='AEPCore'
 
         Output:
             "Core"
-    """
-    return dependency.name[3:]
 
-def get_ios_repo_name(dependency: Dependency) -> str:
-    """
-    Generates the GitHub repository URL for the given iOS dependency based on its name. 
-    If the dependency belongs to the core dependencies, a specific core repository URL is returned. 
-    Otherwise, the repository name is constructed dynamically based on the dependency name.
-
-    Parameters:
-        dependency (Dependency): 
-            A `Dependency` object containing the name of the iOS dependency.
-
-    Returns:
-        str: 
-            The GitHub repository URL for the specified iOS dependency. If the dependency name is unknown 
-            or does not follow the expected naming convention, it prints a warning and returns `None`.
-
-    Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1', absolute_file_paths=None)
+            name='SomeDependency'
 
         Output:
-            "https://github.com/adobe/aepsdk-core-ios.git"
+            "SomeDependency"
     """
-    dependency_name = dependency.name
-    core_dependencies = {'AEPCore', 'AEPIdentity', 'AEPLifecycle', 'AEPServices', 'AEPSignal'}
-    if dependency_name in core_dependencies:
-        return 'https://github.com/adobe/aepsdk-core-ios.git'
+    if name.startswith('AEP'):
+        return name[3:]
     else:
-        if dependency_name.startswith('AEP'):
-            repo_name = dependency_name[3:].lower()
-            return f'https://github.com/adobe/aepsdk-{repo_name}-ios.git'
-        else:
-            print(f"Unknown dependency name '{dependency_name}'. Cannot construct repo URL.")
-            return None
+        return name
 
-def gradle_properties_template(dependency: Dependency) -> str:
+def get_ios_repo_name(name: str) -> str:
     """
-    Generates a regex pattern for matching a dependency version declaration within a Gradle properties file.
-    The pattern identifies the Maven version entry corresponding to the provided dependency.
+    Generates the GitHub repository URL for the specified iOS dependency based on its name.
+    If the dependency is one of the Core dependencies, the Core repo URL is returned.
 
     Parameters:
-        dependency (Dependency): 
-            A `Dependency` object containing the name of the dependency. The name is used to generate 
-            the appropriate Maven property name for substitution in the regex pattern.
+        name (str): 
+            A string representing the name of the iOS dependency. Expected to follow the naming 
+            convention "AEP<DependencyName>".
 
     Returns:
         str: 
-            A regex pattern as a string, with the dependency name injected into the template to match 
-            the Maven version entry.
+            The GitHub repository URL for the specified iOS dependency.
 
     Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1', absolute_file_paths=None)
+            name = 'AEPEdgeIdentity'
+
+        Output:
+            "https://github.com/adobe/aepsdk-edgeidentity-ios.git"
+    """
+    
+    core_dependencies = {'AEPCore', 'AEPIdentity', 'AEPLifecycle', 'AEPServices', 'AEPSignal'}
+    if name in core_dependencies:
+        return 'https://github.com/adobe/aepsdk-core-ios.git'
+    else:
+        if name.startswith('AEP'):
+            repo_name = name[3:].lower()
+            return f'https://github.com/adobe/aepsdk-{repo_name}-ios.git'
+        else:
+            error_exit(title="Unknown dependency", message=f"Unknown dependency name '{name}'. Cannot construct iOS repo URL. Please use format 'AEP<DependencyName>' (ex: 'AEPCore').")
+
+def gradle_properties_template(name: str) -> str:
+    """
+    Generates a regex pattern for matching a dependency version declaration within a Gradle properties file.
+
+    Parameters:
+        name (str): 
+            A string representing the name of the dependency.
+
+    Returns:
+        str: 
+            A regex pattern as a string.
+
+    Example:
+        Input:
+            name = 'AEPCore'
 
         Output:
             "^[\\s\\S]*mavenCoreVersion\\s*=\\s*"
     """
     template = Template(r'^[\s\S]*maven${dependency_name}Version\s*=\s*')
-    gradle_dependency_name = get_dependency_name_for_gradle_properties(dependency)
-    return template.substitute(dependency_name=gradle_dependency_name)
+    gradle_dependency_name = get_dependency_name_for_gradle_properties(name=name)
+    escaped_name = re.escape(gradle_dependency_name)
+    return template.substitute(dependency_name=escaped_name)
 
-def swift_spm_template(dependency: Dependency) -> str:
+def swift_spm_template(name: str) -> str:
     """
-    Generates a regex pattern for matching a Swift Package Manager dependency declaration. 
-    The pattern identifies the package URL and ensures the version constraint uses the `.upToNextMajor(from:)` method.
+    Generates a regex pattern for matching a Swift Package Manager dependency declaration using `.upToNextMajor(from:)`.
 
     Parameters:
-        dependency (Dependency): 
-            A `Dependency` object containing the name of the dependency. The name is used to generate the 
-            appropriate repository URL for substitution in the regex pattern.
+        name (str): 
+            A string representing the name of the dependency.
 
     Returns:
         str: 
-            A regex pattern as a string, with the dependency's repository URL injected into the template.
+            A regex pattern as a string.
 
     Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1', absolute_file_paths=None)
+            name = 'AEPCore'
 
         Output:
             "^[\\s\\S]*\\.package\\(\\s*url:\\s*\"https://github.com/adobe/aepsdk-core-ios.git\"\\s*,\\s*\\.upToNextMajor\\(\\s*from:\\s*\""
     """
     template = Template(r'^[\s\S]*\.package\(\s*url:\s*"${dependency_url}"\s*,\s*\.upToNextMajor\(\s*from:\s*"')
-    ios_dependency_repo = get_ios_repo_name(dependency)
-    return template.substitute(dependency_url=ios_dependency_repo)
+    ios_dependency_repo = get_ios_repo_name(name)
+    escaped_name = re.escape(ios_dependency_repo)
+    return template.substitute(dependency_url=escaped_name)
 
-def podspec_template(dependency: Dependency) -> str:
+def podspec_template(name: str) -> str:
     """
-    Generates a regex pattern for matching a dependency declaration within a CocoaPods podspec file.
-    The pattern matches the dependency name and ensures that the version constraint uses the '>=' operator.
+    Generates a regex pattern for matching a dependency declaration within a CocoaPods podspec file
+    using `s.dependency` and `'>='` operator.
 
     Parameters:
-        dependency (Dependency): 
-            A `Dependency` object containing the name of the dependency for which the regex pattern 
-            will be generated.
+        name (str): 
+            A string representing the name of the dependency.
 
     Returns:
         str: 
-            A regex pattern as a string, with the dependency name injected into the pattern.
+            A regex pattern as a string.
 
     Example:
         Input:
-            Dependency(name='AEPCore', version='3.1.1', absolute_file_paths=None)
+            name = 'AEPCore'
 
         Output:
             "^[\\s\\S]*s\\.dependency\\s*['\"]AEPCore['\"]\\s*,\\s*['\"]>=\\s*"
     """
     # Triple quote used to avoid escaping single quotes in the template
     template = Template(r'''^[\s\S]*s\.dependency\s*["']${dependency_name}["']\s*,\s*["']>=\s*''')
-    name = dependency.name
-    return template.substitute(dependency_name=name)
+    escaped_name = re.escape(name)
+    return template.substitute(dependency_name=escaped_name)
+
+def yml_uses_template(name: str) -> str:
+    """
+    Generates a regex pattern to match a dependency declaration in a YAML file with the 'uses:' syntax 
+    in GitHub Actions workflows.
+
+    The pattern matches the dependency name followed by the `@` symbol. The name does not need to be
+    escaped for regex syntax, as this is handled automatically.
+
+    Parameters:
+        name (str): 
+            A string representing the name of the dependency.
+
+    Returns:
+        str: 
+            A regex pattern as a string.
+
+    Example:
+        Input:
+            name = 'actions\/checkout'
+
+        Output:
+            "^[\\s\\S]*uses:\\s*actions\/checkout@"
+    """
+    template = Template(r'''^[\s\S]*uses:\s*${dependency_name}@''')
+    escaped_name = re.escape(name)
+    return template.substitute(dependency_name=escaped_name)
 
 ROOT_DIR = get_root_dir()
 
@@ -327,47 +318,47 @@ STATIC_REGEX_PATTERNS: dict[str, list[RegexPattern]] = {
     # Android project regex patterns
     '.properties': [
         RegexPattern(
+            description='moduleVersion',
             pattern=r'^[\s\S]*moduleVersion\s*=\s*',
-            description='moduleVersion'
         ),
     ],
     '.java': [
         RegexPattern(
+            description='EXTENSION_VERSION',
             pattern=r'^[\s\S]*String EXTENSION_VERSION\s*=\s*"',
-            description='EXTENSION_VERSION'
         )
     ],
     '.kt': [
         RegexPattern(
+            description='VERSION',
             pattern=r'^[\s\S]*const val VERSION\s*=\s*"',
-            description='VERSION'
         )
     ],
     # iOS project regex patterns
     '.pbxproj': [
         RegexPattern(
+            description='MARKETING_VERSION',
             pattern=r'^[\s\S]*MARKETING_VERSION = ',
-            description='MARKETING_VERSION'
         )
     ],
     '.podspec': [
         RegexPattern(
+            description='s.version',
             pattern=r'^[\s\S]*s\.version\s*=\s*"',
-            description='s.version'
         )
     ],
     '.swift': [
         RegexPattern(
+            description='EXTENSION_VERSION',
             pattern=r'^[\s\S]*static let EXTENSION_VERSION\s*=\s*"',
-            description='EXTENSION_VERSION'
         )
     ],
     # For Swift files that use VERSION_NUMBER instead of EXTENSION_VERSION
     # Ex: EventHubConstants.swift
     'swift_version_number': [
         RegexPattern(
+            description='VERSION_NUMBER',
             pattern=r'^[\s\S]*static let VERSION_NUMBER\s*=\s*"',
-            description='VERSION_NUMBER'
         )
     ],
     # For Swift test files that define version in JSON
@@ -375,8 +366,9 @@ STATIC_REGEX_PATTERNS: dict[str, list[RegexPattern]] = {
     # Ex: MobileCoreTests.swift
     'swift_test_version': [
         RegexPattern(
+            description='version',
             pattern=r'^[\s\S]*\"version\"\s*:\s*"',
-            description='version'
+            version_pattern=TEST_VERSION_REGEX
         )
     ],
 }
@@ -394,26 +386,33 @@ Value:
 TEMPLATE_REGEX_PATTERNS: dict[str, list[RegexTemplate]] = {
     '.properties': [
         RegexTemplate(
-            template=gradle_properties_template,
-            description='maven<dependencyName>Version'
+            description='maven<dependencyName>Version',
+            generate_pattern=gradle_properties_template,
         )
     ],
     'swift_spm': [
         RegexTemplate(
-            template=swift_spm_template,
-            description='.upToNextMajor(from:)'
+            description='.upToNextMajor(from:)',
+            generate_pattern=swift_spm_template,
         )
     ],
     '.podspec': [
         RegexTemplate(
-            template=podspec_template,
-            description='s.dependency'
+            description='s.dependency',
+            generate_pattern=podspec_template,
         )
     ],
+    'yml_uses': [
+        RegexTemplate(
+            description='uses:',
+            generate_pattern=yml_uses_template,
+            version_pattern=REST_OF_LINE_REGEX
+        )
+    ]
 }
 """
 A dictionary mapping file extensions or pattern types to lists of RegexTemplate objects. These templates 
-generate regex patterns dynamically based on the provided `Dependency` object, allowing dependency-specific 
+generate regex patterns dynamically based on the provided name, allowing name-specific 
 version strings to be matched and updated in their corresponding files.
 
 Key:
@@ -422,21 +421,6 @@ Key:
 Value:
     - A list of RegexTemplate objects.
 """
-
-def validate_version(version: str) -> bool:
-    """
-    Validates the provided version string to ensure it follows the semantic versioning format. 
-
-    Parameters:
-        version (str): 
-            The version string to validate.
-
-    Returns:
-        bool: 
-            True if the version is valid, False otherwise.
-    """
-    version_regex = re.compile(VERSION_REGEX)
-    return version_regex.match(version) is not None
 
 def parse_arguments() -> Namespace:
     """
@@ -453,19 +437,20 @@ def parse_arguments() -> Namespace:
         
         -d, --dependencies (str, optional): 
             A comma-separated list of dependencies with their versions. Each dependency can 
-            optionally specify the semicolon-separated list of file paths where it applies using the `@` symbol.
+            optionally specify the semicolon-separated list of file or directory paths and associated pattern type where it 
+            applies using the `@` symbol.
             - Syntax: 
-                `<name> <version>[@file_path1[;file_path2;...]]`
-            - If the `@` syntax is used, the dependency will only be applied to the specified files.
-            - If the `@` symbol is omitted, the dependency applies to all relevant files.
-            - When specifying custom file paths, you must provide either an absolute or relative path to each file.
+                `<name> <version>[@file_path1[:pattern_type][;file_path2[:pattern_type];...]]`
+            - If the `@` syntax is used, the paths provided in the `-p` argument will be overridden, and the dependency will only be applied to the specified files.
+            - When specifying custom paths, you may provide either an absolute or relative path to each file.
             - If a dependency is missing a version, it will be skipped.
+            - `<name>` does not have to be regex-escaped, this is handled automatically.
             Example: 
-                iOS: `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec;AEPIdentity.podspec"`
+                iOS: `"AEPCore 3.1.1, AEPServices 8.9.10@AEPCore.podspec;Package.swift:swift_spm"`
                 Android: `"AEPCore 7.8.9, AEPEdgeIdentity 8.9.10@code/gradle.properties;code/Constants.kt"`
 
         -p, --paths (str): 
-            A comma-separated list of absolute or relative file paths to update or validate. 
+            Comma-separated list of file or directory paths, either absolute or relative to the project root, to update or validate.
             Each path can optionally specify a pattern type using the syntax:
                 `path[:pattern_type]`
             - Example: 
@@ -505,23 +490,21 @@ def parse_arguments() -> Namespace:
     )
 
     parser.add_argument(
-        '-v', '--version', 
-        required=True, 
+        '-v', '--version',
+        required=True,
         help='Version to update or validate for the extension. Example: 3.0.2'
     )
     parser.add_argument(
-        '-d', '--dependencies', 
-        default='none', 
+        '-d', '--dependencies',
         help='Comma-separated dependencies to update along with their version. Example: "Core 3.1.1, Edge 3.2.1"'
     )
     parser.add_argument(
-        '-p', '--paths', 
-        required=True, 
-        help='Comma-separated file paths relative to the repository root to update.'
+        '-p', '--paths',
+        help='Comma-separated list of file or directory paths, either absolute or relative to the project root, to update or validate.'
     )
     parser.add_argument(
-        '-u', '--update', 
-        action='store_true', 
+        '-u', '--update',
+        action='store_true',
         help='Updates the version. If this flag is absent, the script instead verifies if the version is correct.'
     )
 
@@ -534,162 +517,188 @@ def convert_to_absolute_path(file_path: str) -> str:
         file_path = os.path.join(ROOT_DIR, file_path)
     return file_path
 
-# Example path: "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test"
-def parse_paths(paths: str, version: str) -> list[FilePatternGroup]:
+def expand_paths(paths: list[str]) -> list[tuple[str, str | None]]:
     """
-    Parses a comma-separated list of file paths and their optional pattern types, returning a list 
-    of `FilePatternGroup` objects. Each path can optionally specify a pattern type by separating it 
-    with a colon (`:`). If no type is specified, the default pattern for the file's extension is used.
+    Expands the provided paths into a list of absolute file paths with their associated pattern types.
+    If a path is a directory, it includes all files within that directory (non-recursive).
+    If a pattern type is specified, it is associated with each file within the directory or the file itself.
 
     Parameters:
-        paths (str): 
-            A comma-separated string containing file paths. Each path can optionally include 
-            a pattern type using the format `path[:file_type]`. Example:
-            "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test".
+        paths (list[str]):
+            A list of paths (files or directories) with optional pattern types specified after a colon.
 
     Returns:
-        list[FilePatternGroup]: 
-            A list of `FilePatternGroup` objects, where each object represents a file path, 
-            its pattern type (if any), and the associated regex patterns.
+        list[tuple[str, Optional[str]]]:
+            A list of tuples where each tuple contains an absolute file path and its associated pattern type.
 
-    Example:
-        Input: "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:swift_test_version"
-        
-        Output:
-            [
-                FilePatternGroup(path='/root/src/Package.swift', file_pattern_type='swift_spm', patterns=[...]),
-                FilePatternGroup(path='/root/src/Utils.swift', file_pattern_type=None, patterns=[...]),
-                FilePatternGroup(path='/root/src/Test.swift', file_pattern_type='swift_test_version', patterns=[...])
-            ]
+    Raises:
+        SystemExit:
+            If a path does not exist or is neither a file nor a directory.
     """
+    expanded_paths = []
+    for path in paths:
+        cleaned_path, pattern_type = path.split(':', 1) if ':' in path else (path, None)
+        absolute_path = convert_to_absolute_path(cleaned_path)
 
-    paths_list: list[FilePatternGroup] = []
-
-    # Example input: "src/Package.swift:swift_spm, src/Utils.swift, src/Test.swift:test"
-    for path in paths.split(','):
-        file_path = path.strip() # Trim leading and trailing spaces from the path
-        
-        # Check if the path specifies a pattern type using a colon (':')
-        if ':' in file_path:
-            # Split the path into the file path and its associated pattern type
-            file_path, file_type = file_path.split(':', 1)
+        if os.path.isdir(absolute_path):
+            # It's a directory; include all files within (non-recursive)
+            try:
+                for entry in os.scandir(absolute_path):
+                    if entry.is_file():
+                        file_path = entry.path
+                        expanded_paths.append((file_path, pattern_type))
+            except Exception as e:
+                error_exit(title="Error reading directory", message=str(e))
+        elif os.path.isfile(absolute_path):
+            # It's a file
+            expanded_paths.append((absolute_path, pattern_type))
         else:
-            file_path = file_path
-            file_type = None # No specific pattern type provided
+            error_exit(
+                title="Path not found",
+                message=f"Path '{absolute_path}' does not exist or is not a file or directory."
+            )
+    return expanded_paths
 
-        # Convert relative paths to absolute by appending them to the root directory
-        file_path = convert_to_absolute_path(file_path)
-
-        # Verify that the path points to a valid file; skip it if not
-        if not os.path.isfile(file_path):
-            error_exit(title="File not found", message=f"File '{file_path}' does not exist or is not a file.")
-        
-        # Determine the appropriate regex patterns for the file based on type or extension
-        if file_type:
-            applicable_patterns = STATIC_REGEX_PATTERNS.get(file_type, [])
-        else:
-            file_extension = os.path.splitext(path)[1]
-            applicable_patterns = STATIC_REGEX_PATTERNS.get(file_extension, [])
-        
-        remapped_patterns = [
-            RegexPattern(pattern=pattern.pattern, description=pattern.description, version=version)
-            for pattern in applicable_patterns
-        ]
-
-        # Create a FilePatternGroup object with the path, type, and patterns, and store it
-        paths_list.append(FilePatternGroup(
-            path=file_path.strip(), 
-            file_pattern_type=file_type.strip() if file_type else None,
-            patterns=remapped_patterns
-        ))
-
-    return paths_list
-
-def parse_dependencies(dependencies_str: str) -> list[Dependency]:
+def generate_versioned_patterns(paths: list[str], version: str) -> dict[str, list[RegexPattern]]:
     """
-    Parses a comma-separated string of dependencies and their versions, returning a list of 
-    `Dependency` objects. 
-
-    Dependencies that do not start with the prefix `AEP` are automatically standardized by adding 
-    the `AEP` prefix to the name.
+    Generates regex patterns for a list of file paths, associating each pattern with the specified 
+    version. Each path can optionally specify a pattern type by appending it after a colon (`:`). 
+    If no type is specified, a default pattern based on the file's extension is applied.
 
     Parameters:
-        dependencies_str (str): 
-            A comma-separated string of dependencies with their versions. See `parse_arguments()` 
-            for more on dependency string formatting options.
+        paths (list[str]): 
+            A list of file paths as strings.
+
+        version (str): 
+            The version string to use with each regex pattern.
 
     Returns:
-        list[Dependency]: 
-            A list of `Dependency` objects.
+        dict[str, list[RegexPattern]]: 
+            A dictionary where each key is an absolute file path and each value is a list of `RegexPattern` 
+            objects. Each `RegexPattern` in the list matches the specified version for the given path and type.
+
+    Raises:
+        SystemExit: 
+            If a file path does not exist or is not a valid file, the function will call `error_exit` 
+            with an appropriate message, causing the program to exit.
 
     Example:
         Input:
-            "AEPCore 3.1.1, Edge 3.2.1@Package.swift, AEPRulesEngine 7.8.9"
+            paths = ["src/Package.swift:swift_spm", "src/Utils.swift", "src/Test.swift:swift_test_version"]
+            version = "1.2.3"
         
         Output:
-            [
-                Dependency(name='AEPCore', version='3.1.1', file_paths=None),
-                Dependency(name='AEPEdge', version='3.2.1', file_paths=['/path/to/Package.swift']),
-                Dependency(name='AEPRulesEngine', version='7.8.9', file_paths=None)
-            ]
+            {
+                "/root/src/Package.swift": [RegexPattern(...), ...],
+                "/root/src/Utils.swift": [RegexPattern(...), ...],
+                "/root/src/Test.swift": [RegexPattern(...), ...]
+            }
     """
-    dependencies_list: list[Dependency] = []
-    dependencies_input: list[str] = [dep.strip() for dep in dependencies_str.split(',')]
+    
+    paths_to_patterns: dict[str, list[RegexPattern]] = {}
+    expanded_paths = expand_paths(paths)
+
+    for file_path, pattern_type in expanded_paths:
+        if pattern_type:
+            matching_patterns = STATIC_REGEX_PATTERNS.get(pattern_type, [])
+        else:
+            file_extension = os.path.splitext(file_path)[1]
+            matching_patterns = STATIC_REGEX_PATTERNS.get(file_extension, [])
+        for pattern in matching_patterns:
+            # Create a new instance with the updated version
+            pattern_with_version = replace(pattern, version=version)
+            paths_to_patterns.setdefault(file_path, []).append(pattern_with_version)
+
+    return paths_to_patterns
+
+def generate_dependency_patterns(base_paths: list[str], dependencies_str: str) -> dict[str, list[RegexPattern]]:
+    """
+    Generates regex patterns for specified dependencies, mapping each dependency and version to specified 
+    or default file paths. Each dependency can optionally specify path(s) and a pattern type for each path.
+    Paths can specify a pattern type by appending it after a colon (`:`). If no type is specified, 
+    a default pattern based on the file's extension is applied.
+
+    Parameters:
+        base_paths (list[str]): 
+            A list of default file paths to apply if a dependency does not specify paths.
+
+        dependencies_str (str): 
+            A comma-separated string of dependencies with their versions and optional paths and pattern type.
+
+    Returns:
+        dict[str, list[RegexPattern]]: 
+            A dictionary where each key is an absolute file path and each value is a list of `RegexPattern` 
+            objects.
+
+    Raises:
+        SystemExit: 
+            If a file path does not exist or is not a valid file, the function will call `error_exit` 
+            with an appropriate message, causing the program to exit.
+
+    Example:
+        Input:
+            base_paths = ["src/Default.swift"]
+            dependencies_str = "adobe/aepsdk-commons 1.2.3@src/Package.swift:swift_spm, adobe/aepsdk-core 1.1.1"
+
+        Output:
+            {
+                "/root/src/Package.swift": [RegexPattern(...), ...],
+                "/root/src/Default.swift": [RegexPattern(...), ...]
+            }
+    """
+    paths_to_patterns: dict[str, list[RegexPattern]] = {}
+    # Break into individual dependencies, removing empty string paths
+    if dependencies_str:
+        dependencies_input: list[str] = [
+            dep.strip() 
+            for dep in dependencies_str.split(',') 
+            if dep.strip()
+        ]
+    else:
+        dependencies_input = []
 
     for dependency in dependencies_input:
-        dep_parts = dependency.strip().split('@')
-        base_parts = dep_parts[0].split()
+        dependency_parts = dependency.strip().split('@')
+        base_parts = dependency_parts[0].split()
         if len(base_parts) != 2:
-            print(f"Dependency '{dependency}' did not specify a version. Skipping...")
+            log_notice(title=f"Skipping dependency '{dependency}'", message=f"The dependency '{dependency}' did not specify a version. Skipping...")
             continue
 
         dependency_name, dependency_version = base_parts
 
-        # Validate each dependency version has semantic verison format
-        if not validate_version(dependency_version):
-            error_exit(title="Invalid version", message=f"Version '{dependency_version}' for dependency '{dependency_name}' is not valid. Use semantic versioning 'x.y.z'.")
+        paths = dependency_parts[1].split(';') if len(dependency_parts) > 1 else base_paths
+        expanded_paths = expand_paths(paths)
 
-        custom_paths = dep_parts[1].split(';') if len(dep_parts) > 1 else None
-        absolute_file_paths = None
-        if custom_paths: 
-            absolute_file_paths = []
-            for file in custom_paths:
-                absolute_file_paths.append(convert_to_absolute_path(file))
+        for file_path, pattern_type in expanded_paths:
+            if pattern_type:
+                matching_templates = TEMPLATE_REGEX_PATTERNS.get(pattern_type, [])
+            else:
+                file_extension = os.path.splitext(file_path)[1]
+                matching_templates = TEMPLATE_REGEX_PATTERNS.get(file_extension, [])
+            for template in matching_templates:
+                pattern = template.generate_pattern(dependency_name)
+                regex_pattern = RegexPattern(
+                    description=template.description,
+                    pattern=pattern,
+                    version=dependency_version,
+                    version_pattern=template.version_pattern
+                )
+                paths_to_patterns.setdefault(file_path, []).append(regex_pattern)
 
-        # Standardize dependency name
-        if not dependency_name.startswith('AEP'):
-            dependency_name = f'AEP{dependency_name}'
+    return paths_to_patterns
 
-        print(f"Dependency: name={dependency_name}, version={dependency_version}, files={absolute_file_paths}")
-
-        dependencies_list.append(
-            Dependency(name=dependency_name, version=dependency_version, absolute_file_paths=absolute_file_paths)
-        )
-
-    return dependencies_list
-
-###################################################################
-# region Update versions
-###################################################################
-# Updates the versions for the given file path for both the extension and its dependencies
-# All of the regex patterns are evaluated for each line and if a match is found, the version is updated
-def process_file_version(version: str, file_pattern_group: FilePatternGroup, dependencies: list[Dependency] | None, is_update_mode: bool) -> bool | None:
+def process_file_version(path: str, patterns: list[RegexPattern], is_update_mode: bool) -> bool | None:
     """
-    Processes a single file to either update or validate the version and dependencies.
+    Processes a single file to either update or validate version strings based on provided regex patterns.
 
-    In update mode, the function replaces matching version strings with the new version. 
-    In validate mode, it checks whether the existing versions in the file match the expected version. 
-    Additionally, if the file supports dependencies, relevant patterns for the dependencies are applied 
-    based on the file type.
+    In **update mode**, the function replaces matching version strings with the new versions specified in the `RegexPattern` objects.
+    In **validate mode**, it checks whether the existing versions in the file match the expected versions from the `RegexPattern` objects.
 
     Parameters:
-        version (str): 
-            The version to apply or validate. Example: "6.7.8".
-        file_pattern_group (FilePatternGroup): 
-            An object representing the file path, pattern type (if any), and the regex patterns 
-            associated with the file.
-        dependencies (list[Dependency] | None): 
-            A list of `Dependency` objects.
+        path (str):
+            The file system absolute path to the file that needs to be processed.
+        patterns (list[RegexPattern]):
+            A list of `RegexPattern` instances.
         is_update_mode (bool): 
             If True, the function updates the version in the file. If False, the function verifies 
             that the versions are correct.
@@ -706,44 +715,11 @@ def process_file_version(version: str, file_pattern_group: FilePatternGroup, dep
             If there is an issue reading or writing to the file.
     """
     
-    path = file_pattern_group.path
-    file_extension = os.path.splitext(path)[1]
     file_name = os.path.basename(path)
-    file_pattern_type = file_pattern_group.file_pattern_type
-    # Combine extension version patterns and dependency patterns
-    applicable_patterns = file_pattern_group.patterns
 
     print(f"---- {'Updating' if is_update_mode else 'Validating'} versions in '{file_name}' ----")
     print(f"  * File path: {path}")
     
-    # Filter dependencies for the current file
-    applicable_dependencies: list[Dependency] = []
-    for dependency in dependencies:
-        if dependency.absolute_file_paths is None or path in dependency.absolute_file_paths:
-            applicable_dependencies.append(dependency)
-
-    # If the file may contain dependencies, set up dependency patterns
-    if file_pattern_type in DEPENDENCY_FILE_TYPES or file_extension in DEPENDENCY_FILE_TYPES:
-        print("Set up patterns for dependencies:")
-        # Get dependency regex templates based on file type or extension
-        dependency_regex_templates = (
-            TEMPLATE_REGEX_PATTERNS.get(file_pattern_type, []) +
-            TEMPLATE_REGEX_PATTERNS.get(file_extension, [])
-        )
-        if not dependency_regex_templates:
-            print(f"  * WARNING: No dependency regex patterns defined for file type '{file_pattern_type}' in '{file_name}'. Skipping...")
-        else:
-            # Generate regex patterns for each dependency
-            for dependency in applicable_dependencies:
-                for regex_template in dependency_regex_templates:
-                    generated_pattern = regex_template.template(dependency)
-                    print(f"  * Template applied for dependency '{dependency.name}' - Pattern description: {regex_template.description} - Final pattern: {generated_pattern}")
-                    applicable_patterns.append(RegexPattern(pattern=generated_pattern, version=dependency.version, description=regex_template.description))
-
-    if not applicable_patterns:
-        print(f"  * WARNING: No valid regex patterns defined for file type '{file_extension}' in '{file_name}'. Skipping...")
-        return True # Considered successful since there's nothing to check or update
-
     # Read the file content
     with open(path, 'r') as file:
         content = file.readlines()
@@ -754,37 +730,39 @@ def process_file_version(version: str, file_pattern_group: FilePatternGroup, dep
     new_content = []
     for line in content:
         replaced_line = line
-        for applicable_pattern in applicable_patterns:
-            regex_pattern = applicable_pattern.pattern
-            label = applicable_pattern.description
-            pattern_version = applicable_pattern.version
-            version_regex = TEST_VERSION_REGEX if label == 'version' else VERSION_REGEX
+        for regex_pattern in patterns:
+            pattern = regex_pattern.pattern
+            description = regex_pattern.description
+            version = regex_pattern.version
+            version_pattern = regex_pattern.version_pattern or VERSION_REGEX
+
             # Compile regex with two capture groups: the pattern and the version
             # Notice the two parentheses added around the pattern and version regex
-            pattern = re.compile(f"({regex_pattern})({version_regex})")
+            pattern = re.compile(f"({pattern})({version_pattern})")
             match = pattern.match(line)
             if match:
                 if is_update_mode:
                     # Use a named capture group to avoid incorrectly merging the group and version.
                     # Example without named capture group: (capture group) \\1 and (version) 6.7.8 -> \\16.7.8 (interpreted as capture group 16)
-                    replaced_line = pattern.sub(f"\\g<1>{pattern_version}", line)
-                    print(f"Updated '{label}' to '{pattern_version}' in '{file_name}'")
+                    # Note that substitution only affects what is captured in the originally compiled pattern.
+                    replaced_line = pattern.sub(f"\\g<1>{version}", line)
+                    print(f"Updated '{description}' to '{version}' in '{file_name}' - pattern: `{pattern}`")
                 else:
                     current_version = match.group(2)
                     # Validate the version
-                    if current_version == pattern_version:
-                        print(f"PASS '{label}' with pattern `{regex_pattern}` matches '{pattern_version}' in '{file_name}'")
-                        matched_patterns.append(applicable_pattern)
+                    if current_version == version:
+                        print(f"PASS '{description}' with pattern `{pattern}` matches '{version}' in '{file_name}'")
+                        matched_patterns.append(regex_pattern)
         new_content.append(replaced_line)
 
-    # In validate mode, check if all required patterns have matched
     if is_update_mode:
         # Write the updated content back to the file
         with open(path, 'w') as file:
             file.writelines(new_content)
         return None
+    # In validate mode, check if all required patterns have matched
     else:
-        unmatched_patterns = set(applicable_patterns) - set(matched_patterns)
+        unmatched_patterns = set(patterns) - set(matched_patterns)
         for unmatched in unmatched_patterns:
             print(f"FAIL '{unmatched.description}' with pattern `{unmatched.pattern}` did not match any content in '{file_name}'")
         return len(unmatched_patterns) == 0
@@ -813,21 +791,31 @@ def process(args: Namespace):
             - If version validation fails during validate mode (mismatched versions), the script 
               exits with status code 1.
     """
+    # Process the command-line arguments
     version = args.version
-    paths = args.paths
+    # Break into individual paths, removing empty string paths
+    if args.paths:
+        paths = [
+            path.strip() 
+            for path in args.paths.split(',') 
+            if path.strip()
+        ]
+    else:
+        paths = []
     is_update_mode = args.update
 
     print(f"{'Updating' if is_update_mode else 'Validating'} version {'to' if is_update_mode else 'is'} {version}")
 
-    if not validate_version(version):
-        error_exit(title="Invalid version", message=f"Version '{version}' is not valid. Use semantic versioning 'x.y.z'.")
-
     validation_passed = True
 
-    file_pattern_groups = parse_paths(paths, version)
-    dependencies = parse_dependencies(args.dependencies)
-    for file_pattern_group in file_pattern_groups:
-        validation_passed = process_file_version(version, file_pattern_group, dependencies, is_update_mode) and validation_passed
+    paths_to_patterns = generate_versioned_patterns(paths, version)
+    dependency_paths_to_patterns = generate_dependency_patterns(paths, args.dependencies)
+    # Merge the two dictionaries
+    for key, value in dependency_paths_to_patterns.items():
+        paths_to_patterns.setdefault(key, []).extend(value)
+
+    for path, patterns in paths_to_patterns.items():
+        validation_passed = process_file_version(path=path, patterns=patterns, is_update_mode=is_update_mode) and validation_passed
         print()
     if not is_update_mode:
         if validation_passed:

@@ -13,7 +13,7 @@
 name: Release (iOS)
 
 # This workflow relies on the following secrets:
-# - GITHUB_TOKEN: Required for creating a release on GitHub.
+# - GITHUB_TOKEN: With the permission scope: `contents: write`. Required for creating a release on GitHub.
 # - COCOAPODS_TRUNK_TOKEN: Required for publishing a pod to Cocoapods.
 # These can be passed using the `secrets: inherit` option in the caller workflow file.
 

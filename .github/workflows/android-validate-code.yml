@@ -10,7 +10,7 @@
 # governing permissions and limitations under the License.
 #
 
-name: Validate Code (iOS)
+name: Validate Code (Android)
 
 on:
   workflow_call:
@@ -18,14 +18,18 @@ on:
 jobs:
   validate-code:
     name: Validate Code
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4.2.2
 
       - name: Setup Dependencies
-        uses: adobe/aepsdk-commons/.github/actions/ios-setup-dependencies-action@gha-ios-5.0.0
+        id: setup-dependencies
+        uses: adobe/aepsdk-commons/.github/actions/android-setup-dependencies-action@gha-android-3.0.0
+
+      - name: Check Format
+        run: make checkformat
 
       - name: Lint Source Code
         run: make lint

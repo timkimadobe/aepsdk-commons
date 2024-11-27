@@ -39,12 +39,24 @@ on:
         description: 'Enable Codecov for test coverage.'
         type: boolean
         default: false
+      javadoc-build-path:
+        description: |
+          The build path where Javadoc files are stored (ex: code/edgeidentity/build/dokka/javadoc).
+          If a value is not provided, the Javadoc job will be skipped.
+        type: string
+        default: ''
 
 jobs:
   validate-code:
     name: Validate Code
     uses: adobe/aepsdk-commons/.github/workflows/android-validate-code.yml@gha-android-3.0.0
   
+  javadoc:
+    name: Javadoc
+    uses: adobe/aepsdk-commons/.github/workflows/android-javadoc.yml@gha-android-3.0.0
+    with:
+      javadoc-build-path: ${{ inputs.javadoc-build-path }}
+    
   test-unit:
     name: Unit Test
     needs: validate-code

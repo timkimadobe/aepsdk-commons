@@ -65,6 +65,12 @@ jobs:
       version: gha-android-${{ github.event.inputs.version }}
       branch: ${{ github.event.inputs.branch }}
       dependencies: >
-        adobe/aepsdk-commons/.github/workflows/versions.yml gha-android-${{ github.event.inputs.version }}@.github/workflows/android-maven-release.yml:yml_uses
+        adobe/aepsdk-commons/.github/workflows/versions.yml gha-android-${{ github.event.inputs.version }}@.github/workflows/android-maven-release.yml:yml_uses,
+        adobe/aepsdk-commons/.github/workflows/android-validate-code.yml gha-android-${{ github.event.inputs.version }},
+        adobe/aepsdk-commons/.github/workflows/android-custom-command-build-and-test.yml gha-android-${{ github.event.inputs.version }},
+        adobe/aepsdk-commons/.github/actions/android-setup-dependencies-action gha-android-${{ github.event.inputs.version }},
+        adobe/aepsdk-commons/.github/workflows/android-javadoc.yml gha-android-${{ github.event.inputs.version }}
+      paths: >
+        .github/workflows:yml_uses
       update: true
     secrets: inherit

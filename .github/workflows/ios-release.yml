@@ -108,7 +108,7 @@ jobs:
       update: false
 
   release:
-    runs-on: macos-latest
+    runs-on: macos-14
     needs: validate-versions
     steps:
     - uses: actions/checkout@v4.1.7

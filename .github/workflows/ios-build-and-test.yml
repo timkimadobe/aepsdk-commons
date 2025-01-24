@@ -155,7 +155,7 @@ jobs:
 
   build_xcframework_and_app:
     name: Build XCFramework and Test App
-    runs-on: macos-latest
+    runs-on: macos-14
     needs: validate-code
     if: inputs.run-build-xcframework-and-app
 

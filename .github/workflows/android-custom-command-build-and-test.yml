@@ -25,6 +25,18 @@ on:
       command:
         type: string
         required: true
+      upload-artifacts-path:
+        description: 'The path to the artifact(s) to upload. If empty, the upload-artifacts step is skipped.'
+        type: string
+        default: ''
+      upload-artifacts-name:
+        description: '(Optional) Passthrough to upload-artifacts `name`. The name of the artifact(s) to upload, including the file extension if it is a file.'
+        type: string
+        default: ''
+      upload-artifacts-compression-level:
+        description: '(Optional) Passthrough to upload-artifacts `compression-level`. See: https://github.com/actions/upload-artifact?tab=readme-ov-file#altering-compressions-level-speed-v-size'
+        type: string
+        default: ''
       enable-codecov:
         description: 'Enable Codecov for test coverage.'
         type: boolean
@@ -90,8 +102,16 @@ jobs:
       - name: Set Log File Name
         run: |
           FILE_TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M-%S")
+          
           COMMAND_NAME=$(echo "${{ inputs.command }}" | awk '{print $2 ? $2 : $1}' | sed 's/[^a-zA-Z0-9_-]//g')  # Extract the second word of the command and filter out invalid filename chars
           echo "LOG_FILE_NAME=logs-${COMMAND_NAME}_API-${{ matrix.api-level }}_${FILE_TIMESTAMP}Z.log" >> $GITHUB_ENV
+
+          ARTIFACT_NAME=$(echo "${{ inputs.upload-artifacts-name }}" | sed 's/[^a-zA-Z0-9_-]//g')  # Filter out invalid filename chars
+          # If ARTIFACT_NAME is empty, set it to "artifact"
+          if [[ -z "$ARTIFACT_NAME" ]]; then
+            ARTIFACT_NAME="artifact"
+          fi
+          echo "ARTIFACT_FILE_NAME=artifact-${FILE_TIMESTAMP}Z_${ARTIFACT_NAME}" >> $GITHUB_ENV
 
       # Logcat logging from: https://github.com/ReactiveCircus/android-emulator-runner/issues/9#issuecomment-867909354
       - name: Run tests
@@ -119,6 +139,15 @@ jobs:
         with:
           name: ${{ env.LOG_FILE_NAME }}
           path: logs/emulator.log
+
+      - name: Upload Artifacts
+        if: ${{ inputs.upload-artifacts-path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: ${{ env.ARTIFACT_FILE_NAME }}
+          path: ${{ inputs.upload-artifacts-path }}
+          compression-level: ${{ inputs.upload-artifacts-compression-level }}
 
       - name: Upload Code Coverage
         if: ${{ inputs.enable-codecov }}

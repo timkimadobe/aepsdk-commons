@@ -26,10 +26,7 @@ jobs:
 
       - name: Setup Dependencies
         id: setup-dependencies
-        uses: adobe/aepsdk-commons/.github/actions/android-setup-dependencies-action@gha-android-3.1.1
-
-      - name: Check Format
-        run: make checkformat
+        uses: adobe/aepsdk-commons/.github/actions/android-setup-dependencies-action@gha-android-3.2.0
 
       - name: Lint Source Code
-        run: make lint
+        run: make ci-lint

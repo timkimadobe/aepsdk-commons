@@ -67,7 +67,7 @@ def error_exit(title: str | None = None, message: str | None = None):
     Returns:
         None
     """
-    print_annotation(AnnotationType.ERROR, title, message)
+    log_error(title, message)
     sys.exit(1)
 
 DIVIDER_STRING = "=" * 80
@@ -104,23 +104,54 @@ class RegexPattern:
     def __iter__(self):
         return iter((self.pattern, self.version, self.description))
 
-@dataclass
+@dataclass(frozen=True)
 class RegexTemplate:
     """
-    A data class representing a regex template used for generating patterns dynamically based on a dependency.
+    A class that represents either a static regex pattern or a dynamic regex template.
 
     Attributes:
-        template (Callable[[str], str]): 
-            A callable function that takes a dependency name str as input and returns a regex 
-            pattern as a string. This allows the pattern to be customized based on the dependency.
-
-        description (str): 
+        description (str):
             A human-readable description of what the pattern matches.
+
+        pattern_template (str | Callable[[str], str]):
+            A regex pattern string (static) or a callable function that generates a pattern dynamically.
+
+        version (str | None):
+            The version to use, following semantic versioning (e.g., '3.1.1').
+
+        version_pattern (str | None):
+            Allows overriding the version regex used for the pattern.
     """
+
     description: str
-    generate_pattern: Callable[[str], str]
-    # Allows overriding the version regex to be used for the pattern
+    pattern_template: str | Callable[[str], str]
+    version: str | None = None
     version_pattern: str | None = None
+
+    def generate_pattern(self, dependency_name: str | None = None) -> str:
+        """
+        Generates or retrieves the regex pattern.
+
+        Returns:
+            str: The final regex pattern.
+
+        Raises:
+            ValueError: If `pattern_template` is a callable function but no `dependency_name` is provided.
+        """
+        if isinstance(self.pattern_template, str):
+            return self.pattern_template  # Static pattern case
+
+        if dependency_name is None:
+            error_exit(title="Name required", message=f"Name is required for dynamic pattern generation in '{self.description}'.")
+        
+        return self.pattern_template(dependency_name)  # Generated pattern case
+
+    def __iter__(self):
+        """
+        Allows the object to be iterable, yielding a tuple containing the pattern, version, and description.
+        """
+        return iter((self.pattern_template, self.version, self.description))
+
 
 def get_root_dir():
     """
@@ -146,6 +177,9 @@ def get_root_dir():
         return root_dir
     except subprocess.CalledProcessError:
         error_exit(title="Git repository not found", message="Not a git repository or unable to determine root directory.")
+
+def lowercase_first_char(s: str) -> str:
+    return s[:1].lower() + s[1:] if s else s
 
 def get_dependency_name_for_gradle_properties(name: str) -> str:
     """
@@ -236,6 +270,31 @@ def gradle_properties_template(name: str) -> str:
     escaped_name = re.escape(gradle_dependency_name)
     return template.substitute(dependency_name=escaped_name)
 
+def gradle_properties_core_template(name: str) -> str:
+    """
+    Generates a regex pattern for matching a dependency version declaration within a Gradle properties file in the Core repo.
+
+    Parameters:
+        name (str): 
+            A string representing the name of the dependency.
+
+    Returns:
+        str: 
+            A regex pattern as a string.
+
+    Example:
+        Input:
+            name = 'AEPCore'
+
+        Output:
+            '^[\s\S]*coreExtensionVersion\s*=\s*'
+    """
+    template = Template(r'^[\s\S]*${dependency_name}ExtensionVersion\s*=\s*')
+    gradle_dependency_name = get_dependency_name_for_gradle_properties(name=name)
+    gradle_dependency_name = lowercase_first_char(gradle_dependency_name)
+    escaped_name = re.escape(gradle_dependency_name)
+    return template.substitute(dependency_name=escaped_name)
+
 def swift_spm_template(name: str) -> str:
     """
     Generates a regex pattern for matching a Swift Package Manager dependency declaration using `.upToNextMajor(from:)`.
@@ -314,67 +373,75 @@ def yml_uses_template(name: str) -> str:
 
 ROOT_DIR = get_root_dir()
 
-STATIC_REGEX_PATTERNS: dict[str, list[RegexPattern]] = {
+EXTENSION_REGEX_PATTERNS: dict[str, list[RegexPattern]] = {
     # Android project regex patterns
     '.properties': [
-        RegexPattern(
+        RegexTemplate(
             description='moduleVersion',
-            pattern=r'^[\s\S]*moduleVersion\s*=\s*',
+            pattern_template=r'^[\s\S]*moduleVersion\s*=\s*',
         ),
     ],
+    # Use with gradle.properties in the Core repo
+    # Special format for Android Core repo extension versions
+    'core_properties': [
+        RegexTemplate(
+            description='<library>ExtensionVersion (ex: coreExtensionVersion)',
+            pattern_template=gradle_properties_core_template,
+        )
+    ],
     '.java': [
-        RegexPattern(
+        RegexTemplate(
             description='EXTENSION_VERSION',
-            pattern=r'^[\s\S]*String EXTENSION_VERSION\s*=\s*"',
+            pattern_template=r'^[\s\S]*String EXTENSION_VERSION\s*=\s*"',
         )
     ],
     '.kt': [
-        RegexPattern(
+        RegexTemplate(
             description='VERSION',
-            pattern=r'^[\s\S]*const val VERSION\s*=\s*"',
+            pattern_template=r'^[\s\S]*const val VERSION\s*=\s*"',
         )
     ],
     # iOS project regex patterns
     '.pbxproj': [
-        RegexPattern(
+        RegexTemplate(
             description='MARKETING_VERSION',
-            pattern=r'^[\s\S]*MARKETING_VERSION = ',
+            pattern_template=r'^[\s\S]*MARKETING_VERSION = ',
         )
     ],
     '.podspec': [
-        RegexPattern(
+        RegexTemplate(
             description='s.version',
-            pattern=r'^[\s\S]*s\.version\s*=\s*"',
+            pattern_template=r'^[\s\S]*s\.version\s*=\s*"',
         )
     ],
     '.swift': [
-        RegexPattern(
+        RegexTemplate(
             description='EXTENSION_VERSION',
-            pattern=r'^[\s\S]*static let EXTENSION_VERSION\s*=\s*"',
+            pattern_template=r'^[\s\S]*static let EXTENSION_VERSION\s*=\s*"',
         )
     ],
     # For Swift files that use VERSION_NUMBER instead of EXTENSION_VERSION
     # Ex: EventHubConstants.swift
     'swift_version_number': [
-        RegexPattern(
+        RegexTemplate(
             description='VERSION_NUMBER',
-            pattern=r'^[\s\S]*static let VERSION_NUMBER\s*=\s*"',
+            pattern_template=r'^[\s\S]*static let VERSION_NUMBER\s*=\s*"',
         )
     ],
     # For Swift test files that define version in JSON
     # This also uses the TEST_VERSION_REGEX instead of the VERSION_REGEX
     # Ex: MobileCoreTests.swift
     'swift_test_version': [
-        RegexPattern(
+        RegexTemplate(
             description='version',
-            pattern=r'^[\s\S]*\"version\"\s*:\s*"',
+            pattern_template=r'^[\s\S]*\"version\"\s*:\s*"',
             version_pattern=TEST_VERSION_REGEX
         )
     ],
 }
 """
-A dictionary mapping file extensions and pattern types to a list of RegexPattern objects. 
-The regex patterns aim to be permissive with whitespace to avoid blocking different formatting styles.
+A dictionary mapping file extensions and pattern types to a list of `RegexTemplate`s used for the primary extension. 
+The regex patterns aim to be permissive with whitespace to avoid blocking different formatting styles and access levels.
 
 Key:
     - File extension or pattern type as a string (e.g., '.properties', 'swift_test_version').
@@ -383,37 +450,48 @@ Value:
     - A list of RegexPattern objects
 """
 
-TEMPLATE_REGEX_PATTERNS: dict[str, list[RegexTemplate]] = {
+DEPENDENCY_REGEX_PATTERNS: dict[str, list[RegexTemplate]] = {
+    # Android project regex patterns
     '.properties': [
         RegexTemplate(
-            description='maven<dependencyName>Version',
-            generate_pattern=gradle_properties_template,
+            description='maven<dependencyName>Version (ex: mavenCoreVersion)',
+            pattern_template=gradle_properties_template,
         )
     ],
+    # Use with gradle.properties in the Core repo
+    # Special format for Android Core repo extension versions
+    'core_properties': [
+        RegexTemplate(
+            description='<library>ExtensionVersion (ex: coreExtensionVersion)',
+            pattern_template=gradle_properties_core_template,
+        )
+    ],
+    # iOS project regex patterns
     'swift_spm': [
         RegexTemplate(
             description='.upToNextMajor(from:)',
-            generate_pattern=swift_spm_template,
+            pattern_template=swift_spm_template,
         )
     ],
     '.podspec': [
         RegexTemplate(
             description='s.dependency',
-            generate_pattern=podspec_template,
+            pattern_template=podspec_template,
         )
     ],
+    # General regex patterns
+    # Use with YAML files, particularly GitHub Actions workflow actions
     'yml_uses': [
         RegexTemplate(
             description='uses:',
-            generate_pattern=yml_uses_template,
+            pattern_template=yml_uses_template,
             version_pattern=REST_OF_LINE_REGEX
         )
     ]
 }
 """
-A dictionary mapping file extensions or pattern types to lists of RegexTemplate objects. These templates 
-generate regex patterns dynamically based on the provided name, allowing name-specific 
-version strings to be matched and updated in their corresponding files.
+A dictionary mapping file extensions and pattern types to a list of `RegexTemplate`s used for dependencies. 
+The regex patterns aim to be permissive with whitespace to avoid blocking different formatting styles and access levels.
 
 Key:
     - File extension or pattern type as a string (e.g., '.properties', 'swift_spm').
@@ -507,6 +585,10 @@ def parse_arguments() -> Namespace:
         action='store_true',
         help='Updates the version. If this flag is absent, the script instead verifies if the version is correct.'
     )
+    parser.add_argument(
+        '-n', '--name',
+        help='Specifies the extension name. Required if any regex patterns use a template that depends on the extension name. Example: "Core".'
+    )
 
     args: Namespace = parser.parse_args()
     return args
@@ -559,11 +641,11 @@ def expand_paths(paths: list[str]) -> list[tuple[str, str | None]]:
             )
     return expanded_paths
 
-def generate_versioned_patterns(paths: list[str], version: str) -> dict[str, list[RegexPattern]]:
+def generate_extension_patterns(paths: list[str], version: str, name: str | None) -> dict[str, list[RegexPattern]]:
     """
-    Generates regex patterns for a list of file paths, associating each pattern with the specified 
+    Generates regex patterns for the extension using a list of file paths, associating each pattern with the specified 
     version. Each path can optionally specify a pattern type by appending it after a colon (`:`). 
-    If no type is specified, a default pattern based on the file's extension is applied.
+    If no type is specified, a default pattern based on the file's extension is applied. Uses patterns from `EXTENSION_REGEX_PATTERNS`.
 
     Parameters:
         paths (list[str]): 
@@ -571,6 +653,9 @@ def generate_versioned_patterns(paths: list[str], version: str) -> dict[str, lis
 
         version (str): 
             The version string to use with each regex pattern.
+
+        name (str | None):
+            The name of the extension. Required if any regex patterns use a template that depends on the extension name.
 
     Returns:
         dict[str, list[RegexPattern]]: 
@@ -600,14 +685,19 @@ def generate_versioned_patterns(paths: list[str], version: str) -> dict[str, lis
 
     for file_path, pattern_type in expanded_paths:
         if pattern_type:
-            matching_patterns = STATIC_REGEX_PATTERNS.get(pattern_type, [])
+            matching_templates = EXTENSION_REGEX_PATTERNS.get(pattern_type, [])
         else:
             file_extension = os.path.splitext(file_path)[1]
-            matching_patterns = STATIC_REGEX_PATTERNS.get(file_extension, [])
-        for pattern in matching_patterns:
-            # Create a new instance with the updated version
-            pattern_with_version = replace(pattern, version=version)
-            paths_to_patterns.setdefault(file_path, []).append(pattern_with_version)
+            matching_templates = EXTENSION_REGEX_PATTERNS.get(file_extension, [])
+        for template in matching_templates:
+            pattern = template.generate_pattern(name)
+            regex_pattern = RegexPattern(
+                description=template.description,
+                pattern=pattern,
+                version=version,
+                version_pattern=template.version_pattern
+            )
+            paths_to_patterns.setdefault(file_path, []).append(regex_pattern)
 
     return paths_to_patterns
 
@@ -616,7 +706,7 @@ def generate_dependency_patterns(base_paths: list[str], dependencies_str: str) -
     Generates regex patterns for specified dependencies, mapping each dependency and version to specified 
     or default file paths. Each dependency can optionally specify path(s) and a pattern type for each path.
     Paths can specify a pattern type by appending it after a colon (`:`). If no type is specified, 
-    a default pattern based on the file's extension is applied.
+    a default pattern based on the file's extension is applied. Uses patterns from `DEPENDENCY_REGEX_PATTERNS`.
 
     Parameters:
         base_paths (list[str]): 
@@ -671,10 +761,10 @@ def generate_dependency_patterns(base_paths: list[str], dependencies_str: str) -
 
         for file_path, pattern_type in expanded_paths:
             if pattern_type:
-                matching_templates = TEMPLATE_REGEX_PATTERNS.get(pattern_type, [])
+                matching_templates = DEPENDENCY_REGEX_PATTERNS.get(pattern_type, [])
             else:
                 file_extension = os.path.splitext(file_path)[1]
-                matching_templates = TEMPLATE_REGEX_PATTERNS.get(file_extension, [])
+                matching_templates = DEPENDENCY_REGEX_PATTERNS.get(file_extension, [])
             for template in matching_templates:
                 pattern = template.generate_pattern(dependency_name)
                 regex_pattern = RegexPattern(
@@ -803,12 +893,13 @@ def process(args: Namespace):
     else:
         paths = []
     is_update_mode = args.update
+    name = args.name
 
     print(f"{'Updating' if is_update_mode else 'Validating'} version {'to' if is_update_mode else 'is'} {version}")
 
     validation_passed = True
 
-    paths_to_patterns = generate_versioned_patterns(paths, version)
+    paths_to_patterns = generate_extension_patterns(paths, version, name)
     dependency_paths_to_patterns = generate_dependency_patterns(paths, args.dependencies)
     # Merge the two dictionaries
     for key, value in dependency_paths_to_patterns.items():

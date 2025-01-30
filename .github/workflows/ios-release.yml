@@ -64,6 +64,12 @@ on:
         required: true
         default: ''
       
+      version-validation-name:
+        description: |
+          '(Optional) The name of the extension. Required if any regex patterns use a template that depends on the extension name. (ex: AEPLifecycle).'
+        type: string
+        default: ''
+
       version-validation-paths:
         description: |
           A comma-separated list of absolute and/or relative file paths to validate. 
@@ -101,6 +107,7 @@ jobs:
     name: Validate Versions
     uses: adobe/aepsdk-commons/.github/workflows/versions.yml@gha-ios-5.1.0
     with:
+      name: ${{ inputs.version-validation-name }}
       version: ${{ github.event.inputs.tag }}
       branch: ${{ github.ref_name }}
       paths: ${{ inputs.version-validation-paths }}

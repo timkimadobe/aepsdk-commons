@@ -29,6 +29,11 @@ env:
 on:
   workflow_call:
     inputs:
+      name:
+        description: '(Optional) The name of the extension. Required if any regex patterns use a template that depends on the extension name. (ex: Lifecycle).'
+        type: string
+        default: ''
+
       version:
         description: 'The version to update or validate for the extension (ex: 1.2.3).'
         type: string
@@ -121,6 +126,7 @@ jobs:
       run: |
         python3 ./.github/aepsdk-commons/scripts/versions.py \
           ${{ inputs.update && '--update' || '' }} \
+          -n "${{ inputs.name }}" \
           -v "${{ inputs.version }}" \
           -p "${{ inputs.paths }}" \
           -d "${{ inputs.dependencies }}"

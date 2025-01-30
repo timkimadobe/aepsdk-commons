@@ -141,7 +141,8 @@ class RegexTemplate:
         if isinstance(self.pattern_template, str):
             return self.pattern_template  # Static pattern case
 
-        if dependency_name is None:
+        # If dependency_name is None or ""
+        if not dependency_name:
             error_exit(title="Name required", message=f"Name is required for dynamic pattern generation in '{self.description}'.")
         
         return self.pattern_template(dependency_name)  # Generated pattern case
@@ -540,6 +541,12 @@ def parse_arguments() -> Namespace:
             If provided, the script will update the versions in the specified files. 
             If omitted, the script will validate the existing versions instead.
 
+        -n, --name (str, optional): 
+            Specifies the extension name. This is required if any regex patterns reference a template that depends on the extension name.
+            - Some regex patterns may use the extension name as part of their matching criteria.
+            - If the script encounters a regex pattern that requires the extension name but this argument is missing, it will exit with an error code.
+            Example: `"Core"`
+
     Example Usage:
         iOS: 
         --update \ # Remove this flag if you want to validate the versions instead
@@ -854,7 +861,7 @@ def process_file_version(path: str, patterns: list[RegexPattern], is_update_mode
     else:
         unmatched_patterns = set(patterns) - set(matched_patterns)
         for unmatched in unmatched_patterns:
-            print(f"FAIL '{unmatched.description}' with pattern `{unmatched.pattern}` did not match any content in '{file_name}'")
+            print(f"FAIL '{unmatched.description}' with pattern `{unmatched.pattern}` and version {unmatched.version} with version pattern `{unmatched.version_pattern if unmatched.version_pattern is not None else VERSION_REGEX}` did not match any content in '{file_name}'")
         return len(unmatched_patterns) == 0
 
 def process(args: Namespace):

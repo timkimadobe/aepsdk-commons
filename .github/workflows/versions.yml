@@ -24,11 +24,16 @@ name: Update or Validate Versions
 # These can be passed using the `secrets: inherit` option in the caller workflow file.
 
 env:
-  WORKFLOW_TAG: gha-ios-5.1.0
+  WORKFLOW_TAG: gha-ios-5.2.0
 
 on:
   workflow_call:
     inputs:
+      name:
+        description: '(Optional) The name of the extension. Required if any regex patterns use a template that depends on the extension name. (ex: Lifecycle).'
+        type: string
+        default: ''
+
       version:
         description: 'The version to update or validate for the extension (ex: 1.2.3).'
         type: string
@@ -86,7 +91,8 @@ on:
           Only required for Actions that need to modify .github/workflow files.
         required: false
 jobs:
-  update-versions:
+  update-or-validate-versions:
+    name: ${{ inputs.update && 'Update' || 'Validate' }} Versions
     runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4.2.2
@@ -121,6 +127,7 @@ jobs:
       run: |
         python3 ./.github/aepsdk-commons/scripts/versions.py \
           ${{ inputs.update && '--update' || '' }} \
+          -n "${{ inputs.name }}" \
           -v "${{ inputs.version }}" \
           -p "${{ inputs.paths }}" \
           -d "${{ inputs.dependencies }}"
@@ -135,12 +142,26 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-    
-        branch_name="version-${{ inputs.version }}-update"
+
+        branch_name="update-version-${{ inputs.version }}"
+
+        if [[ -n "${{ inputs.name }}" ]]; then
+          branch_name="${{ inputs.name }}-$branch_name"
+        fi
+
+        message="Updating"
+
+        if [[ -n "${{ inputs.name }}" ]]; then
+          capitalized_name=$(echo "${{ inputs.name }}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+          message="$message $capitalized_name "
+        fi
+        
+        message="$message version to ${{ inputs.version }}"
+
         git checkout -b "$branch_name"
         git add .
-        git commit -m "Updating version to ${{ inputs.version }}."
+        git commit -m "$message"
         git push origin "$branch_name"
     
-        gh pr create --base "${{ inputs.branch }}" --head "$branch_name" --title "Updating version to ${{ inputs.version }}" --body "Updating version to ${{ inputs.version }}"
+        gh pr create --base "${{ inputs.branch }}" --head "$branch_name" --title "$message" --body "$message."
       

@@ -33,7 +33,7 @@ jobs:
 
       - name: Setup Dependencies
         id: setup-dependencies
-        uses: adobe/aepsdk-commons/.github/actions/android-setup-dependencies-action@gha-android-3.4.3
+        uses: adobe/aepsdk-commons/.github/actions/android-setup-dependencies-action@gha-android-5.6.7
 
       - name: Javadoc
         run: make javadoc

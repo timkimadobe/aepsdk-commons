@@ -25,5 +25,6 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.merged == true
     uses: ./.github/workflows/downmerge-to-dev.yml
     with:
-      target-branches: "dev dev-actions"
+      target-branches: "dev- dev-v"
+      increment-target-branch: true
     secrets: inherit
